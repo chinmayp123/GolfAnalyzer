@@ -30,6 +30,10 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
 
+  // Trim
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+
   // Pose detection
   const [poseModel, setPoseModel] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
@@ -44,6 +48,9 @@ export default function App() {
   const [analyzingPhase, setAnalyzingPhase] = useState(null);
   const [fullAnalysisRunning, setFullAnalysisRunning] = useState(false);
   const [selectedPro, setSelectedPro] = useState(null);
+  const [userSwingFrames, setUserSwingFrames] = useState(null);
+  const [capturingUserSwing, setCapturingUserSwing] = useState(false);
+  const [userCaptureProgress, setUserCaptureProgress] = useState(0);
 
   // Custom pro profiles (from Pro Calibration)
   const [customProfiles, setCustomProfiles] = useState(() => {
@@ -117,9 +124,11 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setVideoSrc(URL.createObjectURL(file));
-    setActiveTab("analyze");
     setPhaseSnapshots({});
     setAnalysisResults(null);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setUserSwingFrames(null);
     loadModel();
   };
 
@@ -239,14 +248,59 @@ export default function App() {
       impact: 0.7,
       followThrough: 0.9,
     };
+    const tStart = trimStart || 0;
+    const tEnd = trimEnd || duration;
+    const trimDuration = tEnd - tStart;
     for (const phase of SWING_PHASES) {
-      videoRef.current.currentTime = duration * positions[phase];
+      videoRef.current.currentTime = tStart + trimDuration * positions[phase];
       await new Promise((r) => setTimeout(r, 400));
       await capturePhaseSnapshot(phase);
       await new Promise((r) => setTimeout(r, 200));
     }
     setFullAnalysisRunning(false);
     setActiveTab("results");
+  };
+
+  // ─── Capture user's full swing frame by frame ───
+  const captureUserFullSwing = async () => {
+    if (!videoRef.current || !poseModel || !duration) return;
+
+    const tStart = trimStart || 0;
+    const tEnd = trimEnd || duration;
+    const swingDuration = tEnd - tStart;
+    const fps = 15;
+    const totalFrames = Math.max(10, Math.ceil(swingDuration * fps));
+    const step = swingDuration / totalFrames;
+
+    setCapturingUserSwing(true);
+    setUserCaptureProgress(0);
+    videoRef.current.pause();
+    setIsPlaying(false);
+
+    const frames = [];
+    for (let i = 0; i <= totalFrames; i++) {
+      const t = tStart + i * step;
+      videoRef.current.currentTime = t;
+      await new Promise((r) => {
+        const onSeeked = () => { videoRef.current.removeEventListener("seeked", onSeeked); r(); };
+        videoRef.current.addEventListener("seeked", onSeeked);
+      });
+      await new Promise((r) => setTimeout(r, 80));
+      try {
+        const poses = await poseModel.estimatePoses(videoRef.current);
+        if (poses.length > 0) {
+          frames.push({
+            time: t,
+            keypoints: poses[0].keypoints.map((kp) => ({ x: kp.x, y: kp.y, score: kp.score })),
+          });
+        }
+      } catch (_) {}
+      setUserCaptureProgress(Math.round(((i + 1) / (totalFrames + 1)) * 100));
+    }
+
+    setUserSwingFrames(frames);
+    setCapturingUserSwing(false);
+    setUserCaptureProgress(100);
   };
 
   // ─── Compute results whenever snapshots change ───
@@ -269,10 +323,13 @@ export default function App() {
     });
 
     const tips = [];
+    const customProfile = customProfiles.find((p) => p.id === selectedPro);
     phases.forEach((phase) => {
-      Object.entries(phaseSnapshots[phase].metrics).forEach(([, m]) => {
+      Object.entries(phaseSnapshots[phase].metrics).forEach(([key, m]) => {
         if (m.score < 65) {
-          const diff = m.value - m.benchmark.ideal;
+          const proMeasured = customProfile?.phaseMeasurements?.[phase]?.[key];
+          const proVal = proMeasured !== undefined ? proMeasured : m.benchmark.ideal;
+          const diff = m.value - proVal;
           tips.push({
             phase: PHASE_LABELS[phase],
             metric: m.benchmark.label,
@@ -280,8 +337,11 @@ export default function App() {
               Math.round(diff)
             )}° ${diff > 0 ? "too much" : "not enough"} (yours: ${Math.round(
               m.value
-            )}°, pro: ${m.benchmark.ideal}°).`,
+            )}°, pro: ${Math.round(proVal * 10) / 10}°).`,
             score: m.score,
+            userValue: m.value,
+            proValue: proMeasured,
+            idealValue: m.benchmark.ideal,
           });
         }
       });
@@ -293,7 +353,7 @@ export default function App() {
       phaseResults,
       tips: tips.slice(0, 8),
     });
-  }, [phaseSnapshots]);
+  }, [phaseSnapshots, customProfiles, selectedPro]);
 
   // ─── Shot tracer hook (returns canvas + controls) ───
   const tracer = ShotTracer({ videoRef });
@@ -308,7 +368,11 @@ export default function App() {
     duration,
     playbackRate,
     onTimeUpdate: setCurrentTime,
-    onLoadedMetadata: setDuration,
+    onLoadedMetadata: (d) => { setDuration(d); if (trimEnd === 0) setTrimEnd(d); },
+    trimStart,
+    trimEnd,
+    onTrimStartChange: setTrimStart,
+    onTrimEndChange: setTrimEnd,
     onPlay: () => setIsPlaying(true),
     onPause: () => setIsPlaying(false),
     onTogglePlay: togglePlay,
@@ -404,12 +468,12 @@ export default function App() {
         }}
       >
         {[
+          { id: "calibrate", label: "Calibrate Pro", icon: "🎯" },
           { id: "upload", label: "Upload", icon: "📁" },
           { id: "analyze", label: "Analyze", icon: "🔍" },
-          { id: "tracer", label: "Shot Tracer", icon: "✏️" },
           { id: "results", label: "Results", icon: "📊" },
           { id: "proswings", label: "Pro Swings", icon: "🏌️" },
-          { id: "calibrate", label: "Calibrate Pro", icon: "🎯" },
+          { id: "tracer", label: "Shot Tracer", icon: "✏️" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -447,6 +511,8 @@ export default function App() {
             modelLoading={modelLoading}
             modelError={modelError}
             onRetryModel={loadModel}
+            videoReady={!!videoSrc}
+            onNext={() => setActiveTab("analyze")}
           />
         )}
 
@@ -456,7 +522,7 @@ export default function App() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 340px",
+                gridTemplateColumns: "minmax(0, 600px) 340px",
                 gap: 24,
                 alignItems: "start",
               }}
@@ -470,6 +536,7 @@ export default function App() {
                   phaseLabel={
                     analyzingPhase ? PHASE_LABELS[analyzingPhase] : ""
                   }
+                  phaseSnapshots={phaseSnapshots}
                 />
                 {/* Live Measurements below video */}
                 {currentPose && (
@@ -523,6 +590,11 @@ export default function App() {
                 fullAnalysisRunning={fullAnalysisRunning}
                 onCapturePhase={capturePhaseSnapshot}
                 onRunFullAnalysis={runFullAnalysis}
+                onCaptureUserFullSwing={captureUserFullSwing}
+                capturingUserSwing={capturingUserSwing}
+                userCaptureProgress={userCaptureProgress}
+                userSwingFrames={userSwingFrames}
+                onSeekToPhase={seekTo}
                 selectedPro={selectedPro}
                 onSelectPro={setSelectedPro}
                 customProfiles={customProfiles}
@@ -559,12 +631,13 @@ export default function App() {
             phaseSnapshots={phaseSnapshots}
             selectedPro={selectedPro}
             customProfiles={customProfiles}
+            userSwingFrames={userSwingFrames}
             onGoToAnalysis={() => setActiveTab("analyze")}
           />
         )}
 
         {/* Pro Swings */}
-        {activeTab === "proswings" && <ProSwings customProfiles={customProfiles} />}
+        {activeTab === "proswings" && <ProSwings customProfiles={customProfiles} userSwingFrames={userSwingFrames} />}
 
         {/* Pro Calibration */}
         {activeTab === "calibrate" && (

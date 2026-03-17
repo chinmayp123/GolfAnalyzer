@@ -18,6 +18,11 @@ export default function AnalysisPanel({
   fullAnalysisRunning,
   onCapturePhase,
   onRunFullAnalysis,
+  onCaptureUserFullSwing,
+  capturingUserSwing,
+  userCaptureProgress,
+  userSwingFrames,
+  onSeekToPhase,
   selectedPro,
   onSelectPro,
   customProfiles = [],
@@ -151,12 +156,19 @@ export default function AnalysisPanel({
         {SWING_PHASES.map((phase) => (
           <div
             key={phase}
+            onClick={() => {
+              if (phaseSnapshots[phase] && onSeekToPhase) {
+                onSeekToPhase(phaseSnapshots[phase].time);
+              }
+            }}
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               padding: "10px 0",
               borderBottom: "1px solid rgba(255,255,255,0.04)",
+              cursor: phaseSnapshots[phase] ? "pointer" : "default",
+              transition: "background 0.15s",
             }}
           >
             <div>
@@ -179,6 +191,9 @@ export default function AnalysisPanel({
                     }}
                   >
                     {phaseSnapshots[phase].overallScore}
+                  </span>
+                  <span style={{ color: "#475569", marginLeft: 6 }}>
+                    @ {phaseSnapshots[phase].time.toFixed(2)}s
                   </span>
                 </div>
               )}
@@ -230,6 +245,55 @@ export default function AnalysisPanel({
           Show Skeleton Overlay
         </label>
       </div>
+
+      {/* Capture full swing motion */}
+      {onCaptureUserFullSwing && (
+        <div
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            borderRadius: 12,
+            padding: 16,
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <button
+            onClick={onCaptureUserFullSwing}
+            disabled={!poseModel || capturingUserSwing || Object.keys(phaseSnapshots).length === 0}
+            style={{
+              width: "100%",
+              padding: "10px",
+              borderRadius: 10,
+              border: capturingUserSwing ? "1px solid rgba(56,189,248,0.4)" : "1px solid rgba(56,189,248,0.2)",
+              background: capturingUserSwing ? "rgba(56,189,248,0.15)" : userSwingFrames ? "rgba(0,255,170,0.08)" : "rgba(56,189,248,0.08)",
+              color: userSwingFrames ? "#00ffaa" : "#38bdf8",
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: poseModel && !capturingUserSwing && Object.keys(phaseSnapshots).length > 0 ? "pointer" : "not-allowed",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              transition: "all 0.2s",
+            }}
+          >
+            {capturingUserSwing ? (
+              <>
+                <span className="spinner" />
+                Capturing... {userCaptureProgress}%
+              </>
+            ) : userSwingFrames ? (
+              `✓ ${userSwingFrames.length} Frames — Re-capture`
+            ) : (
+              "Capture Full Swing Motion"
+            )}
+          </button>
+          {!userSwingFrames && !capturingUserSwing && (
+            <div style={{ fontSize: 10, color: "#475569", textAlign: "center", marginTop: 6 }}>
+              Records your skeleton for Pro Swings comparison
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

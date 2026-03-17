@@ -4,74 +4,107 @@ import {
   PHASE_LABELS,
   KEYPOINT_NAMES,
   NAMED_SKELETON,
+  SKELETON_CONNECTIONS,
 } from "../utils/constants.js";
 import { getScoreColor, getScoreLabel, generateProPose } from "../utils/helpers.js";
 
+// ─── Normalize raw keypoints to fit a canvas ───
+function normalizeKeypoints(keypoints, canvasW, canvasH) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  keypoints.forEach((kp) => {
+    if (kp.score > 0.3) {
+      minX = Math.min(minX, kp.x);
+      maxX = Math.max(maxX, kp.x);
+      minY = Math.min(minY, kp.y);
+      maxY = Math.max(maxY, kp.y);
+    }
+  });
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const padding = 0.12;
+  return keypoints.map((kp) => ({
+    ...kp,
+    x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) * canvasW + padding * canvasW,
+    y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) * canvasH + padding * canvasH,
+  }));
+}
+
 // ─── Stick Figure Comparison Panel ───
-function PoseComparisonPanel({ phase, userKeypoints, selectedPro, customProfiles }) {
+function PoseComparisonPanel({ phase, userKeypoints, selectedPro, customProfiles, compact }) {
   const userCanvasRef = useRef(null);
   const proCanvasRef = useRef(null);
   const proInfo = customProfiles.find((p) => p.id === selectedPro);
+  const canvasW = compact ? 120 : 200;
+  const canvasH = compact ? 160 : 280;
 
   useEffect(() => {
     if (!proInfo) return;
-    const allBenchmarks = proInfo.benchmarks;
-    if (!allBenchmarks) return;
-    const proRef = generateProPose(allBenchmarks, phase);
-    if (!proRef) return;
+
+    // Use actual captured keypoints from calibration if available, otherwise fall back to generated pose
+    const realProKeypoints = proInfo.phaseKeypoints?.[phase];
 
     if (proCanvasRef.current) {
-      drawStickFigure(proCanvasRef.current, proRef, proInfo.color, proInfo.color, true);
+      if (realProKeypoints) {
+        // Draw actual captured pro keypoints (same normalization as user)
+        const canvas = proCanvasRef.current;
+        const w = canvas.width;
+        const h = canvas.height;
+        const normalized = normalizeKeypoints(realProKeypoints, w, h);
+        drawStickFigure(canvas, normalized, proInfo.color, proInfo.color, false);
+      } else {
+        // Fall back to synthetic pose from benchmarks
+        const allBenchmarks = proInfo.benchmarks;
+        if (allBenchmarks) {
+          const proRef = generateProPose(allBenchmarks, phase);
+          if (proRef) {
+            drawStickFigure(proCanvasRef.current, proRef, proInfo.color, proInfo.color, true);
+          }
+        }
+      }
     }
 
     if (userCanvasRef.current && userKeypoints) {
       const canvas = userCanvasRef.current;
       const w = canvas.width;
       const h = canvas.height;
-
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      userKeypoints.forEach((kp) => {
-        if (kp.score > 0.3) {
-          minX = Math.min(minX, kp.x);
-          maxX = Math.max(maxX, kp.x);
-          minY = Math.min(minY, kp.y);
-          maxY = Math.max(maxY, kp.y);
-        }
-      });
-
-      const rangeX = maxX - minX || 1;
-      const rangeY = maxY - minY || 1;
-      const padding = 0.12;
-
-      const normalized = userKeypoints.map((kp) => ({
-        ...kp,
-        x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) * w + padding * w,
-        y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) * h + padding * h,
-      }));
-
+      const normalized = normalizeKeypoints(userKeypoints, w, h);
       drawStickFigure(canvas, normalized, "#38bdf8", "#38bdf8", false);
     }
   }, [phase, userKeypoints, proInfo]);
 
   if (!proInfo) return null;
 
+  const labelSize = compact ? 9 : 11;
+  const gap = compact ? 6 : 12;
+  const radius = compact ? 8 : 12;
+
   return (
-    <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+    <div style={{ display: "flex", gap, marginTop: compact ? 0 : 16 }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 11, color: "#38bdf8", fontWeight: 700, marginBottom: 6, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>
-          Your Swing
+        {!compact && (
+          <div style={{ fontSize: labelSize, color: "#38bdf8", fontWeight: 700, marginBottom: 6, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>
+            You
+          </div>
+        )}
+        <div style={{ borderRadius: radius, overflow: "hidden", border: "1px solid rgba(56,189,248,0.2)", background: "rgba(56,189,248,0.03)" }}>
+          <canvas ref={userCanvasRef} width={canvasW} height={canvasH} style={{ width: "100%", display: "block" }} />
         </div>
-        <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(56,189,248,0.2)", background: "rgba(56,189,248,0.03)" }}>
-          <canvas ref={userCanvasRef} width={200} height={280} style={{ width: "100%", display: "block" }} />
-        </div>
+        {compact && (
+          <div style={{ fontSize: 8, color: "#38bdf8", fontWeight: 700, textAlign: "center", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>You</div>
+        )}
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 11, color: proInfo.color, fontWeight: 700, marginBottom: 6, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>
-          {proInfo.name}
+        {!compact && (
+          <div style={{ fontSize: labelSize, color: proInfo.color, fontWeight: 700, marginBottom: 6, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>
+            {proInfo.name}
+          </div>
+        )}
+        <div style={{ borderRadius: radius, overflow: "hidden", border: `1px solid ${proInfo.color}33`, background: `${proInfo.color}08` }}>
+          <canvas ref={proCanvasRef} width={canvasW} height={canvasH} style={{ width: "100%", display: "block" }} />
         </div>
-        <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${proInfo.color}33`, background: `${proInfo.color}08` }}>
-          <canvas ref={proCanvasRef} width={200} height={280} style={{ width: "100%", display: "block" }} />
-        </div>
+        {compact && (
+          <div style={{ fontSize: 8, color: proInfo.color, fontWeight: 700, textAlign: "center", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Pro</div>
+        )}
       </div>
     </div>
   );
@@ -234,6 +267,75 @@ export default function Results({ analysisResults, phaseSnapshots, selectedPro, 
         </div>
       </div>
 
+      {/* ─── Skeleton Filmstrip: 5 phases side by side ─── */}
+      <div style={{
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 16,
+        padding: 20,
+        marginBottom: 24,
+      }}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#fff", textAlign: "center" }}>
+          Swing Positions — You vs {proInfo?.name || "Pro"}
+        </h3>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 10,
+        }}>
+          {SWING_PHASES.map((phase) => {
+            const snap = phaseSnapshots?.[phase];
+            const res = analysisResults.phaseResults[phase];
+            return (
+              <div key={phase} style={{ textAlign: "center" }}>
+                <div style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: res ? getScoreColor(res.overallScore) : "#475569",
+                  marginBottom: 4,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}>
+                  {PHASE_LABELS[phase]}
+                </div>
+                {res && (
+                  <div style={{
+                    fontSize: 20,
+                    fontWeight: 800,
+                    color: getScoreColor(res.overallScore),
+                    marginBottom: 6,
+                  }}>
+                    {res.overallScore}
+                  </div>
+                )}
+                <PoseComparisonPanel
+                  phase={phase}
+                  userKeypoints={snap?.keypoints}
+                  selectedPro={selectedPro}
+                  customProfiles={customProfiles}
+                  compact
+                />
+                {!snap && (
+                  <div style={{
+                    height: 120,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 8,
+                    background: "rgba(0,0,0,0.2)",
+                    border: "1px dashed rgba(255,255,255,0.08)",
+                    fontSize: 11,
+                    color: "#475569",
+                  }}>
+                    Not captured
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Phase Breakdown Cards */}
       <div
         style={{
@@ -297,44 +399,69 @@ export default function Results({ analysisResults, phaseSnapshots, selectedPro, 
                 {res.overallScore}
               </div>
 
-              {Object.entries(res.metrics).map(([key, m]) => (
-                <div
-                  key={key}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "5px 0",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
-                    fontSize: 12,
-                  }}
-                >
-                  <span style={{ color: "#94a3b8" }}>{m.benchmark.label}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: "monospace", color: "#e2e8f0" }}>
+              {/* Column headers */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 60px 60px 50px",
+                gap: 6,
+                padding: "6px 0 4px",
+                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                marginBottom: 4,
+              }}>
+                <span style={{ fontSize: 10, color: "#475569", textTransform: "uppercase", letterSpacing: 1 }}>Metric</span>
+                <span style={{ fontSize: 10, color: "#38bdf8", textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>You</span>
+                <span style={{ fontSize: 10, color: proInfo?.color || "#00ffaa", textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>
+                  {proInfo ? "Pro" : "Target"}
+                </span>
+                <span style={{ fontSize: 10, color: "#475569", textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Match</span>
+              </div>
+
+              {Object.entries(res.metrics).map(([key, m]) => {
+                const proMeasured = proInfo?.phaseMeasurements?.[phase]?.[key];
+                const proVal = proMeasured !== undefined ? Math.round(proMeasured * 10) / 10 : m.benchmark.ideal;
+                const diff = Math.round(m.value - proVal);
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 60px 60px 50px",
+                      gap: 6,
+                      alignItems: "center",
+                      padding: "5px 0",
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: "#94a3b8", fontSize: 11 }}>{m.benchmark.label}</span>
+                    <span style={{ fontFamily: "monospace", color: "#38bdf8", fontWeight: 700, textAlign: "right" }}>
                       {Math.round(m.value)}°
                     </span>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 6,
-                        borderRadius: 3,
-                        background: "rgba(255,255,255,0.06)",
-                        overflow: "hidden",
-                      }}
-                    >
+                    <span style={{ fontFamily: "monospace", color: proInfo?.color || "#00ffaa", fontWeight: 700, textAlign: "right" }}>
+                      {proVal}°
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                      <span style={{
+                        fontSize: 10,
+                        fontFamily: "monospace",
+                        fontWeight: 700,
+                        color: m.score >= 85 ? "#22c55e" : m.score >= 65 ? "#eab308" : "#ef4444",
+                      }}>
+                        {diff === 0 ? "=" : (diff > 0 ? "+" : "") + diff + "°"}
+                      </span>
                       <div
                         style={{
-                          height: "100%",
-                          width: `${m.score}%`,
-                          borderRadius: 3,
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
                           background: getScoreColor(m.score),
+                          flexShrink: 0,
                         }}
                       />
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Stick figure comparison */}
               <PoseComparisonPanel
@@ -390,12 +517,32 @@ export default function Results({ analysisResults, phaseSnapshots, selectedPro, 
                 >
                   {tip.score}
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>
                     {tip.phase} — {tip.metric}
                   </div>
-                  <div style={{ fontSize: 13, color: "#e2e8f0" }}>
+                  <div style={{ fontSize: 13, color: "#e2e8f0", marginBottom: 6 }}>
                     {tip.message}
+                  </div>
+                  <div style={{ display: "flex", gap: 16, fontSize: 11 }}>
+                    <span>
+                      <span style={{ color: "#475569" }}>You: </span>
+                      <span style={{ color: "#38bdf8", fontFamily: "monospace", fontWeight: 700 }}>
+                        {tip.userValue !== undefined ? `${Math.round(tip.userValue)}°` : "—"}
+                      </span>
+                    </span>
+                    <span>
+                      <span style={{ color: "#475569" }}>Pro: </span>
+                      <span style={{ color: proInfo?.color || "#00ffaa", fontFamily: "monospace", fontWeight: 700 }}>
+                        {tip.proValue !== undefined ? `${Math.round(tip.proValue * 10) / 10}°` : `${tip.idealValue}°`}
+                      </span>
+                    </span>
+                    <span>
+                      <span style={{ color: "#475569" }}>Diff: </span>
+                      <span style={{ color: getScoreColor(tip.score), fontFamily: "monospace", fontWeight: 700 }}>
+                        {tip.userValue !== undefined ? `${tip.userValue - (tip.proValue ?? tip.idealValue) > 0 ? "+" : ""}${Math.round(tip.userValue - (tip.proValue ?? tip.idealValue))}°` : "—"}
+                      </span>
+                    </span>
                   </div>
                 </div>
               </div>

@@ -2,13 +2,70 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import {
   SWING_PHASES,
   PHASE_LABELS,
+  KEYPOINT_NAMES,
   NAMED_SKELETON,
+  SKELETON_CONNECTIONS,
 } from "../utils/constants.js";
 import { generateProPose } from "../utils/helpers.js";
 
-const PHASE_HOLD_MS = 800;
-const PHASE_TRANSITION_MS = 400;
-const PHASE_TOTAL_MS = PHASE_HOLD_MS + PHASE_TRANSITION_MS;
+// ─── Normalize raw keypoints to named 0-1 coords ───
+function normalizeKeypointsToNamed(keypoints) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  keypoints.forEach((kp) => {
+    if (kp.score > 0.3) {
+      minX = Math.min(minX, kp.x);
+      maxX = Math.max(maxX, kp.x);
+      minY = Math.min(minY, kp.y);
+      maxY = Math.max(maxY, kp.y);
+    }
+  });
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const padding = 0.10;
+
+  const named = {};
+  keypoints.forEach((kp, i) => {
+    if (i < KEYPOINT_NAMES.length && kp.score > 0.3) {
+      named[KEYPOINT_NAMES[i]] = {
+        x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
+        y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
+      };
+    }
+  });
+  return named;
+}
+
+// ─── Normalize full swing frames once upfront ───
+// Compute a single shared bounding box across ALL frames so the figure stays stable
+function normalizeFullSwingFrames(frames) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  frames.forEach((frame) => {
+    frame.keypoints.forEach((kp) => {
+      if (kp.score > 0.3) {
+        minX = Math.min(minX, kp.x);
+        maxX = Math.max(maxX, kp.x);
+        minY = Math.min(minY, kp.y);
+        maxY = Math.max(maxY, kp.y);
+      }
+    });
+  });
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const padding = 0.10;
+
+  return frames.map((frame) => {
+    const named = {};
+    frame.keypoints.forEach((kp, i) => {
+      if (i < KEYPOINT_NAMES.length && kp.score > 0.3) {
+        named[KEYPOINT_NAMES[i]] = {
+          x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
+          y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
+        };
+      }
+    });
+    return { time: frame.time, pose: named };
+  });
+}
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
@@ -29,7 +86,7 @@ function lerpPose(poseA, poseB, t) {
   return result;
 }
 
-function drawStickFigure(canvas, pose, color, glowColor, phaseLabel) {
+function drawStickFigure(canvas, pose, color, glowColor, label) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -98,32 +155,56 @@ function drawStickFigure(canvas, pose, color, glowColor, phaseLabel) {
     ctx.stroke();
   }
 
-  if (phaseLabel) {
+  if (label) {
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.font = "bold 12px Inter, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(phaseLabel, w / 2, h - 10);
+    ctx.fillText(label, w / 2, h - 10);
   }
 }
 
-function buildPoseCache(profiles) {
+// ─── Phase-based pose cache (fallback for profiles without full swing) ───
+const PHASE_HOLD_MS = 800;
+const PHASE_TRANSITION_MS = 400;
+const PHASE_TOTAL_MS = PHASE_HOLD_MS + PHASE_TRANSITION_MS;
+
+function buildPhasePoseCache(profiles) {
   const cache = {};
   for (const profile of profiles) {
+    if (profile.fullSwingFrames && profile.fullSwingFrames.length > 0) continue;
     cache[profile.id] = {};
-    const benchmarks = profile.benchmarks;
+    const hasRealKeypoints = profile.phaseKeypoints && Object.keys(profile.phaseKeypoints).length > 0;
     for (const phase of SWING_PHASES) {
-      cache[profile.id][phase] = generateProPose(benchmarks, phase);
+      if (hasRealKeypoints && profile.phaseKeypoints[phase]) {
+        cache[profile.id][phase] = normalizeKeypointsToNamed(profile.phaseKeypoints[phase]);
+      } else {
+        cache[profile.id][phase] = generateProPose(profile.benchmarks, phase);
+      }
     }
   }
   return cache;
 }
 
-export default function ProSwings({ customProfiles = [] }) {
+// ─── Full swing frame cache ───
+function buildFullSwingCache(profiles) {
+  const cache = {};
+  for (const profile of profiles) {
+    if (profile.fullSwingFrames && profile.fullSwingFrames.length > 0) {
+      cache[profile.id] = normalizeFullSwingFrames(profile.fullSwingFrames);
+    }
+  }
+  return cache;
+}
+
+export default function ProSwings({ customProfiles = [], userSwingFrames = null }) {
   const canvasRefs = useRef({});
+  const userCanvasRef = useRef(null);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
-  const [currentPhaseIndex, setCurrentPhaseIndex] = useState(0);
-  const poseCacheRef = useRef(null);
+  const [currentLabel, setCurrentLabel] = useState("");
+  const phaseCacheRef = useRef(null);
+  const fullSwingCacheRef = useRef(null);
+  const userFramesCacheRef = useRef(null);
   const profileIdsRef = useRef("");
   const animRef = useRef(null);
   const startTimeRef = useRef(null);
@@ -133,55 +214,105 @@ export default function ProSwings({ customProfiles = [] }) {
   useEffect(() => { playingRef.current = playing; }, [playing]);
   useEffect(() => { speedRef.current = speed; }, [speed]);
 
-  // Rebuild pose cache when profiles change
-  const currentIds = customProfiles.map((p) => p.id).join(",");
+  // Rebuild caches when profiles change
+  const currentIds = customProfiles.map((p) => p.id + "_" + (p.fullSwingFrames?.length || 0)).join(",") + "_user" + (userSwingFrames?.length || 0);
   if (currentIds !== profileIdsRef.current) {
-    poseCacheRef.current = buildPoseCache(customProfiles);
+    phaseCacheRef.current = buildPhasePoseCache(customProfiles);
+    fullSwingCacheRef.current = buildFullSwingCache(customProfiles);
+    userFramesCacheRef.current = userSwingFrames && userSwingFrames.length > 1
+      ? normalizeFullSwingFrames(userSwingFrames) : null;
     profileIdsRef.current = currentIds;
   }
-  const poseCache = poseCacheRef.current || {};
+  const phaseCache = phaseCacheRef.current || {};
+  const fullSwingCache = fullSwingCacheRef.current || {};
+  const userFramesCache = userFramesCacheRef.current;
+
+  const FULL_SWING_CYCLE_MS = 2000;
 
   const animate = useCallback((timestamp) => {
     if (!startTimeRef.current) startTimeRef.current = timestamp;
-
     const elapsed = (timestamp - startTimeRef.current) * speedRef.current;
-    const totalCycle = PHASE_TOTAL_MS * SWING_PHASES.length;
-    const cycleTime = elapsed % totalCycle;
-    const rawPhaseIndex = Math.floor(cycleTime / PHASE_TOTAL_MS);
-    const phaseIndex = rawPhaseIndex % SWING_PHASES.length;
-    const phaseElapsed = cycleTime - rawPhaseIndex * PHASE_TOTAL_MS;
 
-    setCurrentPhaseIndex(phaseIndex);
-
-    const currentPhase = SWING_PHASES[phaseIndex];
-    const nextPhase = SWING_PHASES[(phaseIndex + 1) % SWING_PHASES.length];
-
-    let interpT = 0;
-    if (phaseElapsed > PHASE_HOLD_MS) {
-      interpT = (phaseElapsed - PHASE_HOLD_MS) / PHASE_TRANSITION_MS;
-      interpT = interpT * interpT * (3 - 2 * interpT);
-    }
+    let label = "";
 
     for (const profile of customProfiles) {
       const canvas = canvasRefs.current[profile.id];
-      if (!canvas || !poseCache[profile.id]) continue;
+      if (!canvas) continue;
 
-      const poseA = poseCache[profile.id][currentPhase];
-      const poseB = poseCache[profile.id][nextPhase];
-      if (!poseA || !poseB) continue;
-      const interpolated = interpT > 0 ? lerpPose(poseA, poseB, interpT) : poseA;
+      const frames = fullSwingCache[profile.id];
+      if (frames && frames.length > 1) {
+        // ─── Full swing frame playback ───
+        const cycleDuration = FULL_SWING_CYCLE_MS;
+        const t = (elapsed % cycleDuration) / cycleDuration; // 0-1 progress through swing
+        const frameIndex = t * (frames.length - 1);
+        const i = Math.floor(frameIndex);
+        const frac = frameIndex - i;
+        const frameA = frames[Math.min(i, frames.length - 1)];
+        const frameB = frames[Math.min(i + 1, frames.length - 1)];
 
-      const label = interpT > 0
-        ? `${PHASE_LABELS[currentPhase]} → ${PHASE_LABELS[nextPhase]}`
-        : PHASE_LABELS[currentPhase];
+        const pose = frac > 0 && frameA && frameB
+          ? lerpPose(frameA.pose, frameB.pose, frac)
+          : frameA.pose;
 
-      drawStickFigure(canvas, interpolated, profile.color, profile.color, label);
+        // Determine which phase we're in based on progress
+        const phaseNames = ["Address", "Backswing", "Downswing", "Impact", "Follow Through"];
+        const phaseIdx = Math.min(Math.floor(t * 5), 4);
+        label = phaseNames[phaseIdx];
+
+        drawStickFigure(canvas, pose, profile.color, profile.color, label);
+      } else if (phaseCache[profile.id]) {
+        // ─── Phase-based fallback ───
+        const totalCycle = PHASE_TOTAL_MS * SWING_PHASES.length;
+        const cycleTime = elapsed % totalCycle;
+        const rawPhaseIndex = Math.floor(cycleTime / PHASE_TOTAL_MS);
+        const phaseIndex = rawPhaseIndex % SWING_PHASES.length;
+        const phaseElapsed = cycleTime - rawPhaseIndex * PHASE_TOTAL_MS;
+
+        const currentPhase = SWING_PHASES[phaseIndex];
+        const nextPhase = SWING_PHASES[(phaseIndex + 1) % SWING_PHASES.length];
+
+        let interpT = 0;
+        if (phaseElapsed > PHASE_HOLD_MS) {
+          interpT = (phaseElapsed - PHASE_HOLD_MS) / PHASE_TRANSITION_MS;
+          interpT = interpT * interpT * (3 - 2 * interpT);
+        }
+
+        const poseA = phaseCache[profile.id][currentPhase];
+        const poseB = phaseCache[profile.id][nextPhase];
+        if (poseA && poseB) {
+          const interpolated = interpT > 0 ? lerpPose(poseA, poseB, interpT) : poseA;
+          label = interpT > 0
+            ? `${PHASE_LABELS[currentPhase]} → ${PHASE_LABELS[nextPhase]}`
+            : PHASE_LABELS[currentPhase];
+          drawStickFigure(canvas, interpolated, profile.color, profile.color, label);
+        }
+      }
     }
+
+    // Draw user swing
+    if (userFramesCache && userCanvasRef.current) {
+      const frames = userFramesCache;
+      const cycleDuration = FULL_SWING_CYCLE_MS;
+      const t = (elapsed % cycleDuration) / cycleDuration;
+      const frameIndex = t * (frames.length - 1);
+      const i = Math.floor(frameIndex);
+      const frac = frameIndex - i;
+      const frameA = frames[Math.min(i, frames.length - 1)];
+      const frameB = frames[Math.min(i + 1, frames.length - 1)];
+      const pose = frac > 0 && frameA && frameB
+        ? lerpPose(frameA.pose, frameB.pose, frac)
+        : frameA.pose;
+      const phaseNames = ["Address", "Backswing", "Downswing", "Impact", "Follow Through"];
+      const phaseIdx = Math.min(Math.floor(t * 5), 4);
+      drawStickFigure(userCanvasRef.current, pose, "#38bdf8", "#38bdf8", phaseNames[phaseIdx]);
+    }
+
+    setCurrentLabel(label);
 
     if (playingRef.current) {
       animRef.current = requestAnimationFrame(animate);
     }
-  }, [poseCache, customProfiles]);
+  }, [fullSwingCache, phaseCache, customProfiles, userFramesCache]);
 
   useEffect(() => {
     if (playing && customProfiles.length > 0) {
@@ -192,20 +323,6 @@ export default function ProSwings({ customProfiles = [] }) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
   }, [playing, animate, customProfiles]);
-
-  useEffect(() => {
-    if (!playing) {
-      const phase = SWING_PHASES[currentPhaseIndex];
-      for (const profile of customProfiles) {
-        const canvas = canvasRefs.current[profile.id];
-        if (!canvas || !poseCache[profile.id]) continue;
-        const pose = poseCache[profile.id][phase];
-        if (pose) {
-          drawStickFigure(canvas, pose, profile.color, profile.color, PHASE_LABELS[phase]);
-        }
-      }
-    }
-  }, [playing, currentPhaseIndex, poseCache, customProfiles]);
 
   // Empty state
   if (customProfiles.length === 0) {
@@ -226,62 +343,125 @@ export default function ProSwings({ customProfiles = [] }) {
 
   return (
     <div>
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
+      <div style={{ textAlign: "center", marginBottom: 16 }}>
         <h2 style={{
-          margin: 0, fontSize: 28, fontWeight: 700, color: "#fff",
+          margin: 0, fontSize: 22, fontWeight: 700, color: "#fff",
           background: "linear-gradient(135deg, #00ffaa, #38bdf8)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
         }}>
           Pro Swing Comparison
         </h2>
-        <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: 14 }}>
+        <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
           Animated swing sequences from your calibrated pro profiles
         </p>
       </div>
 
       <div style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gap: 20,
+        gridTemplateColumns: userFramesCache ? "1fr 1fr" : `repeat(${cols}, minmax(0, 280px))`,
+        gap: 16,
         marginBottom: 24,
+        justifyContent: "center",
+        maxWidth: 700,
+        margin: "0 auto 24px",
       }}>
-        {customProfiles.map((profile) => (
-          <div key={profile.id} style={{
+        {/* Pro profiles */}
+        {customProfiles.map((profile) => {
+          const hasFullSwing = fullSwingCache[profile.id] && fullSwingCache[profile.id].length > 1;
+          const frameCount = hasFullSwing ? fullSwingCache[profile.id].length : 0;
+          return (
+            <div key={profile.id} style={{
+              background: "rgba(255,255,255,0.03)",
+              border: `1px solid ${profile.color}22`,
+              borderRadius: 14,
+              padding: 12,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: profile.color,
+                  boxShadow: `0 0 6px ${profile.color}66`,
+                }} />
+                <span style={{ fontWeight: 700, fontSize: 14, color: profile.color }}>
+                  {profile.name}
+                </span>
+                {hasFullSwing && (
+                  <span style={{
+                    fontSize: 8, padding: "1px 5px", borderRadius: 3,
+                    background: "rgba(0,255,170,0.15)", color: "#00ffaa",
+                    fontWeight: 600, textTransform: "uppercase",
+                  }}>
+                    {frameCount}f
+                  </span>
+                )}
+              </div>
+              <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${profile.color}22` }}>
+                <canvas
+                  ref={(el) => { canvasRefs.current[profile.id] = el; }}
+                  width={240}
+                  height={300}
+                  style={{ width: "100%", display: "block" }}
+                />
+              </div>
+            </div>
+          );
+        })}
+
+        {/* User swing */}
+        {userFramesCache && (
+          <div style={{
             background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 16,
-            padding: 16,
+            border: "1px solid rgba(56,189,248,0.22)",
+            borderRadius: 14,
+            padding: 12,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <div style={{
-                width: 10, height: 10, borderRadius: "50%",
-                background: profile.color,
-                boxShadow: `0 0 8px ${profile.color}66`,
+                width: 8, height: 8, borderRadius: "50%",
+                background: "#38bdf8",
+                boxShadow: "0 0 6px rgba(56,189,248,0.6)",
               }} />
-              <span style={{ fontWeight: 700, fontSize: 16, color: "#fff" }}>
-                {profile.name}
+              <span style={{ fontWeight: 700, fontSize: 14, color: "#38bdf8" }}>
+                Your Swing
+              </span>
+              <span style={{
+                fontSize: 8, padding: "1px 5px", borderRadius: 3,
+                background: "rgba(56,189,248,0.15)", color: "#38bdf8",
+                fontWeight: 600, textTransform: "uppercase",
+              }}>
+                {userFramesCache.length}f
               </span>
             </div>
-
-            <p style={{
-              margin: "0 0 12px", fontSize: 12, color: "#94a3b8", lineHeight: 1.5,
-            }}>
-              Calibrated from: {profile.videoFileName || "uploaded footage"}
-            </p>
-
-            <div style={{
-              borderRadius: 12, overflow: "hidden",
-              border: `1px solid ${profile.color}22`,
-            }}>
+            <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid rgba(56,189,248,0.22)" }}>
               <canvas
-                ref={(el) => { canvasRefs.current[profile.id] = el; }}
-                width={280}
-                height={360}
+                ref={userCanvasRef}
+                width={240}
+                height={300}
                 style={{ width: "100%", display: "block" }}
               />
             </div>
           </div>
-        ))}
+        )}
+
+        {/* Placeholder if no user swing */}
+        {!userFramesCache && customProfiles.length > 0 && (
+          <div style={{
+            background: "rgba(255,255,255,0.02)",
+            border: "1px dashed rgba(56,189,248,0.15)",
+            borderRadius: 14,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 200,
+          }}>
+            <div style={{ fontSize: 13, color: "#475569", fontWeight: 600, marginBottom: 4 }}>Your Swing</div>
+            <div style={{ fontSize: 11, color: "#334155", textAlign: "center", lineHeight: 1.5 }}>
+              Go to Analyze tab and click<br />"Capture Full Swing Motion"<br />to see your swing here
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Controls */}
@@ -306,7 +486,7 @@ export default function ProSwings({ customProfiles = [] }) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, color: "#64748b", marginRight: 4 }}>Speed:</span>
-          {[0.5, 1, 2].map((s) => (
+          {[0.25, 0.5, 1, 2].map((s) => (
             <button
               key={s}
               onClick={() => setSpeed(s)}
@@ -322,12 +502,14 @@ export default function ProSwings({ customProfiles = [] }) {
           ))}
         </div>
 
-        <div style={{
-          marginLeft: 16, padding: "6px 14px", borderRadius: 6,
-          background: "rgba(56,189,248,0.1)", fontSize: 13, color: "#38bdf8", fontWeight: 600,
-        }}>
-          {PHASE_LABELS[SWING_PHASES[currentPhaseIndex]]}
-        </div>
+        {currentLabel && (
+          <div style={{
+            marginLeft: 16, padding: "6px 14px", borderRadius: 6,
+            background: "rgba(56,189,248,0.1)", fontSize: 13, color: "#38bdf8", fontWeight: 600,
+          }}>
+            {currentLabel}
+          </div>
+        )}
       </div>
     </div>
   );

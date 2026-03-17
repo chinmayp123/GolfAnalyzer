@@ -7,6 +7,8 @@ export default function UploadScreen({
   modelLoading,
   modelError,
   onRetryModel,
+  videoReady,
+  onNext,
 }) {
   const fileInputRef = useRef(null);
 
@@ -76,6 +78,33 @@ export default function UploadScreen({
         onChange={onFileUpload}
         style={{ display: "none" }}
       />
+
+      {/* Video ready → Next button */}
+      {videoReady && (
+        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 13, color: "#00ffaa", fontWeight: 600 }}>
+            ✓ Video loaded successfully
+          </div>
+          <button
+            onClick={onNext}
+            style={{
+              padding: "12px 40px",
+              borderRadius: 10,
+              border: "none",
+              background: "linear-gradient(135deg, #00ffaa, #00cc88)",
+              color: "#000",
+              fontWeight: 700,
+              fontSize: 16,
+              cursor: "pointer",
+              transition: "transform 0.15s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.03)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+          >
+            Next: Analyze →
+          </button>
+        </div>
+      )}
 
       {/* Model loading indicator */}
       {modelLoading && (

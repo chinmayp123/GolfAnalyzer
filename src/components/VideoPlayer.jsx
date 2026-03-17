@@ -1,5 +1,5 @@
 import { useRef, useEffect, useImperativeHandle, forwardRef } from "react";
-import { SKELETON_CONNECTIONS } from "../utils/constants.js";
+import { SKELETON_CONNECTIONS, PHASE_LABELS } from "../utils/constants.js";
 import { formatTime } from "../utils/helpers.js";
 
 // ─── Reusable button ───
@@ -51,12 +51,18 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     analyzingPhase,
     isDetecting,
     phaseLabel,
+    phaseSnapshots, // for timeline markers
+    trimStart,
+    trimEnd,
+    onTrimStartChange,
+    onTrimEndChange,
     children, // extra overlay canvases (e.g. tracer)
   },
   ref
 ) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const wasPausedRef = useRef(false);
 
   // Expose the raw video element to parent components
   useImperativeHandle(ref, () => videoRef.current);
@@ -68,15 +74,20 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     const ctx = canvas.getContext("2d");
     const video = videoRef.current;
 
-    canvas.width = video.videoWidth || video.clientWidth;
-    canvas.height = video.videoHeight || video.clientHeight;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Use the displayed size for the canvas so it matches the video on screen exactly
+    const displayW = video.clientWidth;
+    const displayH = video.clientHeight;
+    canvas.width = displayW;
+    canvas.height = displayH;
+    ctx.clearRect(0, 0, displayW, displayH);
 
     if (!currentPose || !showSkeleton) return;
+    if (!video.videoWidth || !video.videoHeight) return;
 
     const kps = currentPose.keypoints;
-    const scaleX = canvas.width / (video.videoWidth || video.clientWidth);
-    const scaleY = canvas.height / (video.videoHeight || video.clientHeight);
+    // MoveNet keypoints are in video pixel space — scale to display size
+    const scaleX = displayW / video.videoWidth;
+    const scaleY = displayH / video.videoHeight;
 
     // Connections
     ctx.lineWidth = 3;
@@ -188,13 +199,14 @@ const VideoPlayer = forwardRef(function VideoPlayer(
       {/* Controls */}
       <div
         style={{
-          marginTop: 12,
+          marginTop: 10,
           background: "rgba(255,255,255,0.03)",
           borderRadius: 12,
-          padding: 16,
+          padding: "12px 14px",
           border: "1px solid rgba(255,255,255,0.06)",
         }}
       >
+        {/* Slider — clean, no overlays */}
         <input
           type="range"
           min={0}
@@ -202,45 +214,88 @@ const VideoPlayer = forwardRef(function VideoPlayer(
           step={0.001}
           value={currentTime}
           onChange={(e) => onSeek(parseFloat(e.target.value))}
-          style={{
-            width: "100%",
-            accentColor: "#00ffaa",
-            cursor: "pointer",
-            marginBottom: 12,
-          }}
+          onMouseDown={() => { if (videoRef.current && !videoRef.current.paused) videoRef.current.pause(); }}
+          onTouchStart={() => { if (videoRef.current && !videoRef.current.paused) videoRef.current.pause(); }}
+          style={{ width: "100%", accentColor: "#00ffaa", cursor: "pointer", display: "block" }}
         />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn onClick={() => onStepFrame(-1)}>⏮</Btn>
-            <Btn onClick={onTogglePlay} accent>
-              {isPlaying ? "⏸" : "▶"}
-            </Btn>
-            <Btn onClick={() => onStepFrame(1)}>⏭</Btn>
+
+        {/* Playback controls row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 4 }}>
+            <Btn onClick={() => onStepFrame(-1)} small>⏮</Btn>
+            <Btn onClick={onTogglePlay} accent small>{isPlaying ? "⏸" : "▶"}</Btn>
+            <Btn onClick={() => onStepFrame(1)} small>⏭</Btn>
           </div>
-          <div
-            style={{ fontSize: 13, color: "#94a3b8", fontFamily: "monospace" }}
-          >
+          <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>
             {formatTime(currentTime)} / {formatTime(duration)}
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ display: "flex", gap: 3 }}>
             {[0.25, 0.5, 1].map((r) => (
-              <Btn
-                key={r}
-                onClick={() => onSetPlaybackRate(r)}
-                small
-                active={playbackRate === r}
-              >
-                {r}x
-              </Btn>
+              <Btn key={r} onClick={() => onSetPlaybackRate(r)} small active={playbackRate === r}>{r}x</Btn>
             ))}
           </div>
         </div>
+
+        {/* Phase jump chips — only shown when snapshots exist */}
+        {phaseSnapshots && Object.keys(phaseSnapshots).length > 0 && (
+          <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+            {Object.entries(phaseSnapshots).map(([phase, data]) => {
+              const labels = { address: "Address", backswing: "Backswing", downswing: "Downswing", impact: "Impact", followThrough: "Finish" };
+              const isNear = Math.abs(currentTime - data.time) < 0.15;
+              return (
+                <button
+                  key={phase}
+                  onClick={() => onSeek(data.time)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 5,
+                    border: isNear ? "1px solid #00ffaa" : "1px solid rgba(255,255,255,0.08)",
+                    background: isNear ? "rgba(0,255,170,0.15)" : "rgba(255,255,255,0.04)",
+                    color: isNear ? "#00ffaa" : "#94a3b8",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {labels[phase] || phase} <span style={{ opacity: 0.6 }}>{data.time.toFixed(1)}s</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Trim — compact inline row */}
+        {duration > 0 && onTrimStartChange && onTrimEndChange && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 11 }}>
+            <span style={{ color: "#475569", flexShrink: 0 }}>Trim:</span>
+            <input
+              type="range" min={0} max={duration} step={0.01} value={trimStart || 0}
+              onChange={(e) => { const v = parseFloat(e.target.value); if (v < (trimEnd || duration) - 0.1) onTrimStartChange(v); }}
+              style={{ flex: 1, accentColor: "#38bdf8", cursor: "pointer", height: 3 }}
+            />
+            <span style={{ color: "#38bdf8", fontFamily: "monospace", fontWeight: 600, minWidth: 35, textAlign: "center" }}>
+              {(trimStart || 0).toFixed(1)}
+            </span>
+            <span style={{ color: "#475569" }}>—</span>
+            <span style={{ color: "#f97316", fontFamily: "monospace", fontWeight: 600, minWidth: 35, textAlign: "center" }}>
+              {(trimEnd || duration).toFixed(1)}
+            </span>
+            <input
+              type="range" min={0} max={duration} step={0.01} value={trimEnd || duration}
+              onChange={(e) => { const v = parseFloat(e.target.value); if (v > (trimStart || 0) + 0.1) onTrimEndChange(v); }}
+              style={{ flex: 1, accentColor: "#f97316", cursor: "pointer", height: 3 }}
+            />
+            {((trimStart || 0) > 0 || (trimEnd || duration) < duration) && (
+              <button
+                onClick={() => { onTrimStartChange(0); onTrimEndChange(duration); }}
+                style={{ padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#94a3b8", fontSize: 9, cursor: "pointer" }}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
