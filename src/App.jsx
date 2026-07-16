@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Flag, Settings, X, Eye, EyeOff, ChevronRight,
+  Flag, Settings, X, Eye, EyeOff, ChevronRight, Zap,
   Upload, ScanLine, BarChart3, Users, History as HistoryIcon,
 } from "lucide-react";
 
@@ -12,9 +12,11 @@ import AnalyzeStep from "./components/AnalyzeStep.jsx";
 import ResultsStep from "./components/ResultsStep.jsx";
 import ProLibrary from "./components/ProLibrary.jsx";
 import HistoryPage from "./components/HistoryPage.jsx";
+import PracticePage from "./components/PracticePage.jsx";
 
 const PAGES = [
   { id: "analyze", label: "Analyze", icon: ScanLine },
+  { id: "practice", label: "Practice", icon: Zap },
   { id: "pros", label: "Pro Library", icon: Users },
   { id: "history", label: "History", icon: HistoryIcon },
 ];
@@ -255,6 +257,14 @@ export default function App() {
               />
             )}
           </div>
+        )}
+
+        {page === "practice" && (
+          <PracticePage
+            profiles={profiles}
+            selectedProId={selectedProId}
+            onSelectPro={setSelectedProId}
+          />
         )}
 
         {page === "pros" && (
