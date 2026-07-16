@@ -9,6 +9,8 @@ const COACH_SYSTEM = `You are a world-class golf swing coach reviewing computer-
 
 The measurements come from 2D pose estimation (MoveNet), so treat individual numbers as approximate; focus on patterns across phases rather than single-degree differences. Angles are in degrees.
 
+When launch monitor data is included (club speed, ball speed, smash factor, carry, shot shape), use it to connect mechanics to outcomes: a low smash factor points at strike quality, shot shape points at face/path, and speed points at sequencing. Ground the Root Cause and Priority Fix in what the ball actually did, not just the pose deltas.
+
 Write your response in markdown with exactly these sections:
 
 ## The Big Picture
@@ -29,12 +31,25 @@ One specific, named practice drill for that fix: how to set up, what to feel, ho
 Keep the whole response under 400 words. Be direct and encouraging, not clinical.`;
 
 function buildPrompt(analysis) {
-  const { proName, overallScore, phaseResults } = analysis;
+  const { proName, overallScore, phaseResults, shotData } = analysis;
   const lines = [
     `Student swing vs pro "${proName}". Overall score: ${overallScore}/100.`,
     ``,
-    `Per-phase measurements (student value vs pro's measured value, with a 0-100 score):`,
   ];
+  if (shotData) {
+    const parts = [];
+    if (shotData.clubSpeed) parts.push(`club speed ${shotData.clubSpeed} mph`);
+    if (shotData.ballSpeed) parts.push(`ball speed ${shotData.ballSpeed} mph`);
+    if (shotData.smash) parts.push(`smash factor ${shotData.smash}`);
+    if (shotData.carry) parts.push(`carry ${shotData.carry} yds`);
+    if (shotData.direction) parts.push(`shot shape: ${shotData.direction}`);
+    if (parts.length) {
+      lines.push(`Launch monitor data for this swing: ${parts.join(", ")}.`, ``);
+    }
+  }
+  lines.push(
+    `Per-phase measurements (student value vs pro's measured value, with a 0-100 score):`
+  );
   Object.entries(phaseResults).forEach(([phase, data]) => {
     lines.push(``, `${PHASE_LABELS[phase] || phase} — phase score ${data.overallScore}/100:`);
     Object.entries(data.metrics || {}).forEach(([key, m]) => {

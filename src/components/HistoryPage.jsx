@@ -3,6 +3,7 @@ import { History, ChevronDown, Trash2, ImageOff } from "lucide-react";
 import { listSwings, deleteSwing } from "../lib/storage.js";
 import { getScoreColor, getScoreLabel } from "../lib/metrics.js";
 import { PHASE_LABELS } from "../lib/constants.js";
+import { formatShotData } from "./LaunchMonitorCard.jsx";
 
 // Compact phase names for chips (PHASE_LABELS are too long for pills)
 const PHASE_SHORT = {
@@ -193,6 +194,11 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
               style={{ background: swing.proColor || "#5cbc7f" }}
             />
             <span className="truncate">vs {swing.proName || "Pro"}</span>
+            {swing.shotData && formatShotData(swing.shotData) && (
+              <span className="ml-2 hidden truncate font-mono text-[10px] text-gold-300 sm:inline">
+                {formatShotData(swing.shotData)}
+              </span>
+            )}
           </div>
           {/* mini phase chips */}
           {phases.length > 0 && (
@@ -270,6 +276,16 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {swing.shotData && formatShotData(swing.shotData) && (
+            <div className="mb-4">
+              <div className="text-[10px] uppercase tracking-wider text-ink-500 mb-1.5">
+                Launch monitor
+              </div>
+              <div className="font-mono text-sm text-gold-300">
+                {formatShotData(swing.shotData)}
+              </div>
             </div>
           )}
           {swing.coaching ? (

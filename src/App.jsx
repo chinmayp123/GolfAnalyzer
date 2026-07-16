@@ -123,6 +123,16 @@ export default function App() {
     [currentSwing]
   );
 
+  const handleSaveShotData = useCallback(
+    (shotData) => {
+      if (!currentSwing) return;
+      const updated = { ...currentSwing, shotData };
+      setCurrentSwing(updated);
+      saveSwing(updated).catch((err) => console.error("History save failed:", err));
+    },
+    [currentSwing]
+  );
+
   const saveKey = (key) => {
     setApiKey(key);
     setApiKeyState(key);
@@ -240,6 +250,8 @@ export default function App() {
                 onGoToAnalyze={() => setStep("analyze")}
                 onCoachingComplete={handleCoachingComplete}
                 savedCoaching={currentSwing?.coaching || null}
+                savedShotData={currentSwing?.shotData || null}
+                onSaveShotData={handleSaveShotData}
               />
             )}
           </div>

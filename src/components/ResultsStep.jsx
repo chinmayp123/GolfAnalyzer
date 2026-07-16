@@ -3,6 +3,7 @@ import { SWING_PHASES, PHASE_LABELS } from "../lib/constants.js";
 import { getScoreColor, getScoreLabel } from "../lib/metrics.js";
 import SkeletonCompare from "./SkeletonCompare.jsx";
 import CoachingCard from "./CoachingCard.jsx";
+import LaunchMonitorCard from "./LaunchMonitorCard.jsx";
 
 // ─── Results dashboard: hero score, playback comparison, breakdown, coaching ───
 
@@ -44,6 +45,8 @@ export default function ResultsStep({
   onGoToAnalyze,
   onCoachingComplete,
   savedCoaching,
+  savedShotData,
+  onSaveShotData,
 }) {
   const results = session.analysisResults;
 
@@ -197,12 +200,20 @@ export default function ResultsStep({
         </div>
       </section>
 
+      {/* ── Launch monitor data (Shot Scope LM1 etc.) ── */}
+      <LaunchMonitorCard
+        key={session.scannedFrames ? "lm-scan" : "lm-none"}
+        savedShotData={savedShotData}
+        onSave={onSaveShotData}
+      />
+
       {/* ── AI coaching ── */}
       <CoachingCard
         analysis={{
           proName: proProfile?.name || "Pro",
           overallScore,
           phaseResults,
+          shotData: savedShotData || null,
         }}
         apiKey={apiKey}
         onOpenSettings={onOpenSettings}
