@@ -1,4 +1,4 @@
-import { KEYPOINT_INDEX } from "./constants.js";
+import { kpIndex } from "./constants.js";
 
 // ─── Automatic swing-phase detection from hand kinematics ───
 //

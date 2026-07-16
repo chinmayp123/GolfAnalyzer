@@ -271,7 +271,7 @@ export default function App() {
       <footer className="border-t border-cream-50/5 py-4">
         <div className="max-w-7xl mx-auto px-6 text-[11px] text-ink-600 flex items-center justify-between">
           <span>SwingAI — analysis runs entirely in your browser.</span>
-          <span>Pose detection: MoveNet · Coaching: Claude</span>
+          <span>Pose detection: MediaPipe 3D · Coaching: Claude</span>
         </div>
       </footer>
 

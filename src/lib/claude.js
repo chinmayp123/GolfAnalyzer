@@ -7,7 +7,7 @@ import { PHASE_LABELS } from "./constants.js";
 
 const COACH_SYSTEM = `You are a world-class golf swing coach reviewing computer-vision measurements of a student's swing, compared phase-by-phase against a professional's swing that was measured with the same pose-detection pipeline.
 
-The measurements come from 2D pose estimation (MoveNet), so treat individual numbers as approximate; focus on patterns across phases rather than single-degree differences. Angles are in degrees.
+The measurements come from single-camera 3D pose estimation (MediaPipe BlazePose): rotations (shoulder turn, hip turn, hips open, chest to target) are true angles measured relative to the golfer's setup orientation, while depth is model-estimated, so treat individual numbers as approximate (±10°); focus on patterns across phases rather than single-degree differences. Angles are in degrees.
 
 When launch monitor data is included (club speed, ball speed, smash factor, carry, shot shape), use it to connect mechanics to outcomes: a low smash factor points at strike quality, shot shape points at face/path, and speed points at sequencing. Ground the Root Cause and Priority Fix in what the ball actually did, not just the pose deltas.
 

@@ -7,10 +7,11 @@ import {
   Crosshair,
   Flag,
   Activity,
+  AlertTriangle,
 } from "lucide-react";
 import VideoWorkspace from "./VideoWorkspace.jsx";
 import { useShotTracer } from "./TracerOverlay.jsx";
-import { SWING_PHASES, PHASE_LABELS } from "../lib/constants.js";
+import { SWING_PHASES, PHASE_LABELS, PROFILE_FORMAT_3D } from "../lib/constants.js";
 import { analyzeKeypoints, getScoreColor } from "../lib/metrics.js";
 
 // Short labels for the live-measurement grid, in display order.
@@ -53,7 +54,10 @@ export default function AnalyzeStep({
 
   const liveMeasurements = useMemo(() => {
     if (!session.currentPose || session.analyzing) return null;
-    const m = analyzeKeypoints(session.currentPose.keypoints);
+    const m = analyzeKeypoints(
+      session.currentPose.keypoints,
+      session.currentPose.world || null
+    );
     return LIVE_METRICS.filter(([key]) => m[key] !== undefined)
       .slice(0, 12)
       .map(([key, label]) => ({ key, label, value: m[key] }));
@@ -107,6 +111,10 @@ export default function AnalyzeStep({
   };
 
   const detectedPhases = SWING_PHASES.filter((p) => session.phaseSnapshots?.[p]);
+
+  const selectedProfile = proProfiles?.find((p) => p.id === selectedProId);
+  const selectedProfileIsLegacy =
+    selectedProfile && selectedProfile.format !== PROFILE_FORMAT_3D;
 
   return (
     <div className="fade-up grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -199,6 +207,16 @@ export default function AnalyzeStep({
           ) : (
             <p className="text-sm text-ink-400">
               Create a pro profile in the Pro Library first.
+            </p>
+          )}
+          {selectedProfileIsLegacy && (
+            <p
+              className="mt-3 flex items-start gap-1.5 text-xs leading-relaxed"
+              style={{ color: "#d8b25c" }}
+            >
+              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+              This profile was calibrated with the old 2D tracker &mdash;
+              re-calibrate it in the Pro Library for accurate rotation scores.
             </p>
           )}
         </div>

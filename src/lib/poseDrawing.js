@@ -1,4 +1,4 @@
-import { KEYPOINT_NAMES, SKELETON_CONNECTIONS, NAMED_SKELETON } from "./constants.js";
+import { namesFor, connectionsFor, NAMED_SKELETON } from "./constants.js";
 
 // ─── Shared canvas drawing for skeletons and stick figures ───
 
@@ -23,7 +23,7 @@ export function drawSkeletonOverlay(canvas, video, keypoints, { color = "#5cbc7f
   ctx.globalAlpha = 0.85;
   ctx.lineWidth = 2.5;
   ctx.lineCap = "round";
-  SKELETON_CONNECTIONS.forEach(([i, j]) => {
+  connectionsFor(keypoints.length).forEach(([i, j]) => {
     const a = keypoints[i];
     const b = keypoints[j];
     if (a && b && a.score > 0.3 && b.score > 0.3) {
@@ -58,10 +58,11 @@ export function keypointsToNamed(keypoints, padding = 0.1) {
   });
   const rangeX = maxX - minX || 1;
   const rangeY = maxY - minY || 1;
+  const names = namesFor(keypoints.length);
   const named = {};
   keypoints.forEach((kp, i) => {
-    if (i < KEYPOINT_NAMES.length && kp.score > 0.3) {
-      named[KEYPOINT_NAMES[i]] = {
+    if (i < names.length && kp.score > 0.3) {
+      named[names[i]] = {
         x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
         y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
       };
@@ -90,10 +91,11 @@ export function normalizeFullSwingFrames(frames, padding = 0.1) {
   const rangeY = maxY - minY || 1;
 
   return frames.map((frame) => {
+    const names = namesFor(frame.keypoints.length);
     const pose = {};
     frame.keypoints.forEach((kp, i) => {
-      if (i < KEYPOINT_NAMES.length && kp.score > 0.3) {
-        pose[KEYPOINT_NAMES[i]] = {
+      if (i < names.length && kp.score > 0.3) {
+        pose[names[i]] = {
           x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
           y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
         };

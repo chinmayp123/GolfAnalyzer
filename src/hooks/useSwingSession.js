@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { getPoseDetector, scanSwingVideo, grabFrame } from "../lib/poseModel.js";
+import { getPoseDetector, scanSwingVideo, grabFrame, detectPose } from "../lib/poseModel.js";
 import { detectSwingPhases, detectSwingWindows } from "../lib/phaseDetection.js";
-import { analyzeKeypoints, scorePhase } from "../lib/metrics.js";
+import { analyzeKeypoints, scorePhase, orientationReference } from "../lib/metrics.js";
 import { SWING_PHASES, PHASE_LABELS } from "../lib/constants.js";
 
 // ─── The analysis session ───
@@ -103,8 +103,8 @@ export default function useSwingSession({ proProfile }) {
       try {
         const frameCanvas = grabFrame(video);
         if (!frameCanvas) return;
-        const poses = await detector.estimatePoses(frameCanvas);
-        if (running && poses.length > 0) setCurrentPose(poses[0]);
+        const pose = detectPose(detector, frameCanvas, frameCanvas.width, frameCanvas.height);
+        if (running && pose) setCurrentPose(pose);
       } catch {
         /* ignore per-frame errors */
       } finally {
@@ -171,12 +171,20 @@ export default function useSwingSession({ proProfile }) {
   };
 
   // ── Snapshot helpers ──
+  // Address-frame orientation reference: rotation metrics (hip turn, hips
+  // open, chest to target) are measured relative to setup, which makes them
+  // camera-angle independent. Set whenever an address snapshot is built.
+  const orientationRefRef = useRef(null);
+
   const buildSnapshot = useCallback(
-    (time, keypoints, phase) => {
-      const measurements = analyzeKeypoints(keypoints);
+    (time, keypoints, world, phase) => {
+      if (phase === "address") {
+        orientationRefRef.current = orientationReference(world);
+      }
+      const measurements = analyzeKeypoints(keypoints, world, orientationRefRef.current);
       const benchmarks = proProfile?.benchmarks?.[phase] || {};
       const { metrics, overallScore } = scorePhase(measurements, benchmarks);
-      return { time, keypoints, measurements, metrics, overallScore };
+      return { time, keypoints, world: world || null, measurements, metrics, overallScore };
     },
     [proProfile]
   );
@@ -210,12 +218,14 @@ export default function useSwingSession({ proProfile }) {
       setUserSwingFrames(usable);
 
       const snapshots = {};
+      // SWING_PHASES order matters: address runs first and establishes the
+      // orientation reference the rotation metrics measure against.
       SWING_PHASES.forEach((phase) => {
         const hit = detection[phase];
         if (!hit) return;
         const frame = usable[hit.frameIndex] || usable.find((f) => f.time === hit.time);
         if (!frame) return;
-        snapshots[phase] = buildSnapshot(frame.time, frame.keypoints, phase);
+        snapshots[phase] = buildSnapshot(frame.time, frame.keypoints, frame.world, phase);
       });
       setPhaseSnapshots(snapshots);
 
@@ -251,7 +261,7 @@ export default function useSwingSession({ proProfile }) {
         endTime: trimEnd || duration,
         onProgress: setAnalyzeProgress,
         // keep the skeleton overlay following the swing while we scan
-        onFrame: (frame) => setCurrentPose({ keypoints: frame.keypoints }),
+        onFrame: (frame) => setCurrentPose({ keypoints: frame.keypoints, world: frame.world }),
       });
       setScannedFrames(frames);
 
@@ -311,12 +321,11 @@ export default function useSwingSession({ proProfile }) {
       try {
         const frameCanvas = grabFrame(video);
         if (!frameCanvas) return;
-        const poses = await detector.estimatePoses(frameCanvas);
-        if (poses.length > 0) {
-          const kps = poses[0].keypoints.map((kp) => ({ x: kp.x, y: kp.y, score: kp.score }));
+        const pose = detectPose(detector, frameCanvas, frameCanvas.width, frameCanvas.height);
+        if (pose) {
           setPhaseSnapshots((prev) => ({
             ...prev,
-            [phase]: buildSnapshot(video.currentTime, kps, phase),
+            [phase]: buildSnapshot(video.currentTime, pose.keypoints, pose.world, phase),
           }));
         }
       } catch {
@@ -334,7 +343,7 @@ export default function useSwingSession({ proProfile }) {
       const next = {};
       phases.forEach((phase) => {
         const s = prev[phase];
-        next[phase] = buildSnapshot(s.time, s.keypoints, phase);
+        next[phase] = buildSnapshot(s.time, s.keypoints, s.world || null, phase);
       });
       return next;
     });

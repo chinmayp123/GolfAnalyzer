@@ -1,30 +1,81 @@
-import * as tf from "@tensorflow/tfjs";
-import * as poseDetection from "@tensorflow-models/pose-detection";
+import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 
-// Singleton MoveNet detector — bundled via npm, no runtime CDN scripts.
-let detectorPromise = null;
+// ─── MediaPipe Pose (BlazePose) — 33 landmarks with 3D world coordinates ───
+//
+// Output per detection:
+//   keypoints: [{x, y, score}]  — image PIXEL coordinates (33 points)
+//   world:     [{x, y, z}]      — meters, hip-centered; y up is NEGATIVE
+//                                  (MediaPipe uses image-style y-down axes)
+//
+// The world landmarks are what make real rotation metrics possible: shoulder
+// and hip turn are invisible to a 2D tracker whenever the rotation happens
+// toward or away from the camera.
+
+const MEDIAPIPE_VERSION = "0.10.35"; // keep in sync with package.json
+const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task";
+
+let landmarkerPromise = null;
 
 export function getPoseDetector() {
-  if (!detectorPromise) {
-    detectorPromise = (async () => {
-      await tf.ready();
-      return poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-        modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER,
-        enableSmoothing: true,
+  if (!landmarkerPromise) {
+    landmarkerPromise = (async () => {
+      const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+      return PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       });
     })().catch((err) => {
-      detectorPromise = null;
+      landmarkerPromise = null;
       throw err;
     });
   }
-  return detectorPromise;
+  return landmarkerPromise;
+}
+
+// detectForVideo requires strictly increasing timestamps per landmarker.
+let lastTimestamp = 0;
+function nextTimestamp() {
+  lastTimestamp = Math.max(performance.now(), lastTimestamp + 1);
+  return lastTimestamp;
+}
+
+/**
+ * Run pose detection on a frame source (canvas). Returns
+ * {keypoints, world} or null when no person is found.
+ */
+export function detectPose(landmarker, source, width, height) {
+  const result = landmarker.detectForVideo(source, nextTimestamp());
+  const lm = result.landmarks?.[0];
+  if (!lm || lm.length === 0) return null;
+  const wl = result.worldLandmarks?.[0] || null;
+  return {
+    keypoints: lm.map((p) => ({
+      x: p.x * width,
+      y: p.y * height,
+      score: p.visibility ?? 1,
+    })),
+    world: wl
+      ? wl.map((p) => ({
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          score: p.visibility ?? 1,
+        }))
+      : null,
+  };
 }
 
 // Copy the video's current frame into a reusable offscreen canvas and return
-// it. TFJS should never read the <video> element directly: uploading frames
-// to WebGL straight from a video that is being seeked wedges Chrome's media
-// decoder (stale frames on seek, renderer freezes). drawImage goes through
-// the stable compositor path and hands TFJS plain, settled pixels.
+// it. The model should never read the <video> element directly: uploading
+// frames to the GPU straight from a video that is being seeked wedges
+// Chrome's media decoder (stale frames on seek, renderer freezes). drawImage
+// goes through the stable compositor path and hands the model settled pixels.
 let captureCanvas = null;
 
 export function grabFrame(video) {
@@ -44,9 +95,6 @@ function seekTo(video, t) {
       if (done) return;
       done = true;
       video.removeEventListener("seeked", onSeeked);
-      // `seeked` means the frame is decoded and readable — resolve directly.
-      // (No setTimeout/rAF here: both get throttled to ~1/s in hidden tabs,
-      // which turned a 20s scan into a 3-minute one.)
       resolve();
     };
     const onSeeked = finish;
@@ -59,7 +107,7 @@ function seekTo(video, t) {
 /**
  * Scan a video over [startTime, endTime] by PLAYING it through once and
  * capturing poses as frames are presented. Returns compact frames:
- * [{time, keypoints: [{x,y,score}, ...]}]
+ * [{time, keypoints, world}]
  *
  * Why play-through instead of seek-stepping: issuing hundreds of rapid
  * programmatic seeks reliably wedges Chrome's media decoder — afterwards the
@@ -107,12 +155,9 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
     try {
       const frameCanvas = grabFrame(video);
       if (frameCanvas) {
-        const poses = await detector.estimatePoses(frameCanvas);
-        if (poses.length > 0) {
-          const frame = {
-            time: t,
-            keypoints: poses[0].keypoints.map((kp) => ({ x: kp.x, y: kp.y, score: kp.score })),
-          };
+        const pose = detectPose(detector, frameCanvas, frameCanvas.width, frameCanvas.height);
+        if (pose) {
+          const frame = { time: t, keypoints: pose.keypoints, world: pose.world };
           frames.push(frame);
           onFrame?.(frame);
         }

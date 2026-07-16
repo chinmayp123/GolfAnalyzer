@@ -14,7 +14,12 @@ import {
 } from "lucide-react";
 import useSwingSession from "../hooks/useSwingSession.js";
 import VideoWorkspace from "./VideoWorkspace.jsx";
-import { SWING_PHASES, PHASE_LABELS, PHASE_HINTS } from "../lib/constants.js";
+import {
+  SWING_PHASES,
+  PHASE_LABELS,
+  PHASE_HINTS,
+  PROFILE_FORMAT_3D,
+} from "../lib/constants.js";
 import { extractBenchmarks } from "../lib/metrics.js";
 
 // ─── Pro Library ───
@@ -240,15 +245,28 @@ export default function ProLibrary({ profiles, onSaveProfile, onDeleteProfile })
       phaseMeasurements[phase] = snap.measurements;
       phaseTimes[phase] = snap.time;
     });
+    // Strip `world` landmarks and round values — full-swing frames go to
+    // localStorage, so keep them compact.
+    const fullSwingFrames = session.userSwingFrames?.length
+      ? session.userSwingFrames.map((frame) => ({
+          time: Math.round(frame.time * 1000) / 1000,
+          keypoints: frame.keypoints.map((kp) => ({
+            x: Math.round(kp.x),
+            y: Math.round(kp.y),
+            score: Math.round(kp.score * 100) / 100,
+          })),
+        }))
+      : null;
     const profile = {
       id: name.toLowerCase().replace(/\s+/g, "_"),
       name: name.trim(),
       color,
+      format: PROFILE_FORMAT_3D,
       benchmarks: extractBenchmarks(phaseMeasurements),
       phaseKeypoints,
       phaseMeasurements,
       phaseTimes,
-      fullSwingFrames: session.userSwingFrames || null,
+      fullSwingFrames,
       videoFileName,
       createdAt: new Date().toISOString(),
     };
