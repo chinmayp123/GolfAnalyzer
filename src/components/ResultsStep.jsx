@@ -69,7 +69,9 @@ export default function ResultsStep({
   const analyzedPhases = SWING_PHASES.filter((p) => phaseResults[p]);
 
   return (
-    <div className="fade-up space-y-8">
+    <div className="fade-up grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px] xl:items-start">
+      {/* ── LEFT column: score, breakdown, tips ── */}
+      <div className="space-y-6 min-w-0">
       {/* ── Hero: overall score + per-phase bars ── */}
       <div className="card p-6">
         <div className="flex flex-col md:flex-row items-center gap-8">
@@ -104,20 +106,6 @@ export default function ResultsStep({
           </div>
         </div>
       </div>
-
-      {/* ── Animated swing comparison ── */}
-      {proProfile && session.userSwingFrames?.length > 0 && (
-        <section>
-          <h2 className="font-display text-cream-50 text-xl mb-3">Swing comparison</h2>
-          <SkeletonCompare
-            userFrames={session.userSwingFrames}
-            userPhaseTimes={Object.fromEntries(
-              Object.entries(session.phaseSnapshots || {}).map(([p, s]) => [p, s.time])
-            )}
-            proProfile={proProfile}
-          />
-        </section>
-      )}
 
       {/* ── Phase breakdown ── */}
       <section>
@@ -199,27 +187,44 @@ export default function ResultsStep({
           )}
         </div>
       </section>
+      </div>
 
-      {/* ── Launch monitor data (Shot Scope LM1 etc.) ── */}
-      <LaunchMonitorCard
-        key={session.scannedFrames ? "lm-scan" : "lm-none"}
-        savedShotData={savedShotData}
-        onSave={onSaveShotData}
-      />
+      {/* ── RIGHT column: comparison, launch monitor, coaching ── */}
+      <div className="space-y-6 min-w-0">
+        {proProfile && session.userSwingFrames?.length > 0 && (
+          <section>
+            <h2 className="font-display text-cream-50 text-xl mb-3">Swing comparison</h2>
+            <SkeletonCompare
+              userFrames={session.userSwingFrames}
+              userPhaseTimes={Object.fromEntries(
+                Object.entries(session.phaseSnapshots || {}).map(([p, s]) => [p, s.time])
+              )}
+              proProfile={proProfile}
+            />
+          </section>
+        )}
 
-      {/* ── AI coaching ── */}
-      <CoachingCard
-        analysis={{
-          proName: proProfile?.name || "Pro",
-          overallScore,
-          phaseResults,
-          shotData: savedShotData || null,
-        }}
-        apiKey={apiKey}
-        onOpenSettings={onOpenSettings}
-        initialText={savedCoaching}
-        onComplete={onCoachingComplete}
-      />
+        {/* ── Launch monitor data (Shot Scope LM1 etc.) ── */}
+        <LaunchMonitorCard
+          key={session.scannedFrames ? "lm-scan" : "lm-none"}
+          savedShotData={savedShotData}
+          onSave={onSaveShotData}
+        />
+
+        {/* ── AI coaching ── */}
+        <CoachingCard
+          analysis={{
+            proName: proProfile?.name || "Pro",
+            overallScore,
+            phaseResults,
+            shotData: savedShotData || null,
+          }}
+          apiKey={apiKey}
+          onOpenSettings={onOpenSettings}
+          initialText={savedCoaching}
+          onComplete={onCoachingComplete}
+        />
+      </div>
     </div>
   );
 }

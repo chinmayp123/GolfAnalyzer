@@ -166,7 +166,7 @@ export default function SkeletonCompare({ userFrames, userPhaseTimes, proProfile
 
   return (
     <div className="card p-5">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="mx-auto grid max-w-md grid-cols-2 gap-4">
         <div>
           <div className="rounded-lg overflow-hidden bg-pine-900 border border-pine-700">
             <canvas ref={userCanvasRef} width={300} height={400} className="w-full block" />

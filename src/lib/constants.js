@@ -93,10 +93,8 @@ export const NAMED_SKELETON = [
   ["right_knee", "right_ankle"],
   ["left_ankle", "left_heel"],
   ["left_heel", "left_foot_index"],
-  ["left_ankle", "left_foot_index"],
   ["right_ankle", "right_heel"],
   ["right_heel", "right_foot_index"],
-  ["right_ankle", "right_foot_index"],
 ];
 
 export const TRACER_COLORS = [

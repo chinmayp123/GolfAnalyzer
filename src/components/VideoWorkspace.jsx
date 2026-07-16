@@ -74,7 +74,7 @@ const VideoWorkspace = forwardRef(function VideoWorkspace(
         <video
           ref={attachVideo}
           src={videoSrc}
-          className="block max-h-[68vh] w-auto max-w-full"
+          className="block max-h-[56vh] w-auto max-w-full"
           onTimeUpdate={() => onTimeUpdate(videoRef.current?.currentTime || 0)}
           onLoadedMetadata={() => onLoadedMetadata(videoRef.current?.duration || 0)}
           onPlay={onPlay}

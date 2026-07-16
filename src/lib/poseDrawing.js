@@ -56,15 +56,20 @@ export function keypointsToNamed(keypoints, padding = 0.1) {
       maxY = Math.max(maxY, kp.y);
     }
   });
+  // Aspect-preserving: one scale for both axes (based on the larger extent),
+  // otherwise bodies get stretched to fill the box and look distorted.
   const rangeX = maxX - minX || 1;
   const rangeY = maxY - minY || 1;
+  const scale = Math.max(rangeX, rangeY);
+  const offX = (1 - 2 * padding) * ((1 - rangeX / scale) / 2);
+  const offY = (1 - 2 * padding) * ((1 - rangeY / scale) / 2);
   const names = namesFor(keypoints.length);
   const named = {};
   keypoints.forEach((kp, i) => {
     if (i < names.length && kp.score > 0.3) {
       named[names[i]] = {
-        x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
-        y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
+        x: ((kp.x - minX) / scale) * (1 - 2 * padding) + padding + offX,
+        y: ((kp.y - minY) / scale) * (1 - 2 * padding) + padding + offY,
       };
     }
   });
@@ -87,8 +92,12 @@ export function normalizeFullSwingFrames(frames, padding = 0.1) {
       }
     });
   });
+  // Aspect-preserving shared scale (see keypointsToNamed)
   const rangeX = maxX - minX || 1;
   const rangeY = maxY - minY || 1;
+  const scale = Math.max(rangeX, rangeY);
+  const offX = (1 - 2 * padding) * ((1 - rangeX / scale) / 2);
+  const offY = (1 - 2 * padding) * ((1 - rangeY / scale) / 2);
 
   return frames.map((frame) => {
     const names = namesFor(frame.keypoints.length);
@@ -96,8 +105,8 @@ export function normalizeFullSwingFrames(frames, padding = 0.1) {
     frame.keypoints.forEach((kp, i) => {
       if (i < names.length && kp.score > 0.3) {
         pose[names[i]] = {
-          x: ((kp.x - minX) / rangeX) * (1 - 2 * padding) + padding,
-          y: ((kp.y - minY) / rangeY) * (1 - 2 * padding) + padding,
+          x: ((kp.x - minX) / scale) * (1 - 2 * padding) + padding + offX,
+          y: ((kp.y - minY) / scale) * (1 - 2 * padding) + padding + offY,
         };
       }
     });
