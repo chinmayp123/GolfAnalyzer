@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { BarChart3, Target } from "lucide-react";
 import { SWING_PHASES, PHASE_LABELS } from "../lib/constants.js";
 import { getScoreColor, getScoreLabel } from "../lib/metrics.js";
 import SkeletonCompare from "./SkeletonCompare.jsx";
 import CoachingCard from "./CoachingCard.jsx";
 import LaunchMonitorCard from "./LaunchMonitorCard.jsx";
+import MetricDetail from "./MetricDetail.jsx";
 
 // ─── Results dashboard: hero score, playback comparison, breakdown, coaching ───
 
@@ -67,6 +69,7 @@ export default function ResultsStep({
 
   const { overallScore, phaseResults, tips } = results;
   const analyzedPhases = SWING_PHASES.filter((p) => phaseResults[p]);
+  const [detail, setDetail] = useState(null); // {phase, metricKey, metric}
 
   return (
     <div className="fade-up grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px] xl:items-start">
@@ -129,11 +132,17 @@ export default function ResultsStep({
                     {res.overallScore}
                   </span>
                 </div>
-                <div className="space-y-2.5">
+                <div className="space-y-1">
                   {Object.entries(res.metrics || {}).map(([key, m]) => {
                     const mColor = getScoreColor(m.score);
                     return (
-                      <div key={key} className="flex items-center justify-between gap-3">
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setDetail({ phase, metricKey: key, metric: m })}
+                        title="Click to see this on your swing"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 text-left transition-colors hover:bg-cream-50/5"
+                      >
                         <div className="min-w-0">
                           <p className="text-xs text-cream-300 truncate">{m.benchmark.label}</p>
                           <p className="font-mono text-[11px] text-ink-400">
@@ -146,7 +155,7 @@ export default function ResultsStep({
                         >
                           {m.score}
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -225,6 +234,16 @@ export default function ResultsStep({
           onComplete={onCoachingComplete}
         />
       </div>
+
+      {/* ── Click-through metric inspector ── */}
+      {detail && (
+        <MetricDetail
+          detail={detail}
+          proProfile={proProfile}
+          userSnapshot={session.phaseSnapshots?.[detail.phase] || null}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }

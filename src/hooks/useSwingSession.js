@@ -125,30 +125,55 @@ export default function useSwingSession({ proProfile }) {
     else video.pause();
   }, []);
 
+  // Chrome's decoder occasionally wedges on a paused element: currentTime
+  // updates but the displayed frame never changes and `seeking` stays true.
+  // Watchdog: if a seek hasn't completed shortly after we asked for it,
+  // reload the element (cheap for a local blob) and re-seek — self-healing.
+  const seekWatchdogRef = useRef(null);
+  const requestSeek = useCallback((video, t) => {
+    video.currentTime = t;
+    clearTimeout(seekWatchdogRef.current);
+    seekWatchdogRef.current = setTimeout(() => {
+      const v = videoRef.current;
+      if (!v || !v.seeking) return; // seek completed normally
+      const rate = v.playbackRate;
+      const onMeta = () => {
+        v.removeEventListener("loadedmetadata", onMeta);
+        v.playbackRate = rate;
+        v.currentTime = t;
+      };
+      v.addEventListener("loadedmetadata", onMeta);
+      v.load(); // rebuild the wedged media pipeline, then land on the frame
+    }, 500);
+  }, []);
+
   const stepFrame = useCallback(
     (dir) => {
       const video = videoRef.current;
       if (!video) return;
       video.pause();
-      video.currentTime = Math.max(0, Math.min(duration, video.currentTime + dir / 30));
+      requestSeek(video, Math.max(0, Math.min(duration, video.currentTime + dir / 30)));
     },
-    [duration]
+    [duration, requestSeek]
   );
 
-  const seekTo = useCallback((t) => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.currentTime = t;
-    setCurrentTime(t);
-    // Seeks often come from panels far from the player (phase lists, chips).
-    // If most of the video is off-screen, bring it into view so the user
-    // actually sees the frame they jumped to.
-    const rect = video.getBoundingClientRect();
-    const visible = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 72);
-    if (visible < rect.height * 0.5) {
-      video.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, []);
+  const seekTo = useCallback(
+    (t) => {
+      const video = videoRef.current;
+      if (!video) return;
+      requestSeek(video, t);
+      setCurrentTime(t);
+      // Seeks often come from panels far from the player (phase lists, chips).
+      // If most of the video is off-screen, bring it into view so the user
+      // actually sees the frame they jumped to.
+      const rect = video.getBoundingClientRect();
+      const visible = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 72);
+      if (visible < rect.height * 0.5) {
+        video.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    },
+    [requestSeek]
+  );
 
   const changePlaybackRate = useCallback((r) => {
     setPlaybackRate(r);

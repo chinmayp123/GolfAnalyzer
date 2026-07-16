@@ -129,8 +129,13 @@ export function lerpPose(poseA, poseB, t) {
   return result;
 }
 
-/** Draw a stick figure from a named 0-1 pose onto a canvas. */
-export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = {}) {
+/**
+ * Draw a stick figure from a named 0-1 pose onto a canvas.
+ * `highlight` optionally emphasizes specific segments/joints for a metric:
+ *   { segments: [["left_hip","right_hip"], ...], joints: ["left_knee"],
+ *     color: "#d8b25c" } — the rest of the body is drawn dimmed.
+ */
+export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true, highlight = null } = {}) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -153,9 +158,10 @@ export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = 
     return pt ? { x: pt.x * w, y: pt.y * h } : null;
   };
 
+  const baseColor = highlight ? "rgba(247,244,234,0.22)" : color;
   ctx.lineWidth = Math.max(2, w * 0.018);
   ctx.lineCap = "round";
-  ctx.strokeStyle = color;
+  ctx.strokeStyle = baseColor;
   NAMED_SKELETON.forEach(([a, b]) => {
     const pa = getPoint(a);
     const pb = getPoint(b);
@@ -167,6 +173,33 @@ export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = 
     }
   });
 
+  // Highlighted segments drawn on top, thicker and bright
+  if (highlight?.segments?.length) {
+    ctx.strokeStyle = highlight.color || color;
+    ctx.lineWidth = Math.max(3, w * 0.028);
+    highlight.segments.forEach(([a, b]) => {
+      const pa = getPoint(a);
+      const pb = getPoint(b);
+      if (pa && pb) {
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+      }
+    });
+  }
+  if (highlight?.joints?.length) {
+    ctx.fillStyle = highlight.color || color;
+    highlight.joints.forEach((name) => {
+      const pt = getPoint(name);
+      if (pt) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(4, w * 0.024), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
   const joints = [
     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
     "left_wrist", "right_wrist", "left_hip", "right_hip",
@@ -177,7 +210,7 @@ export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = 
     if (pt) {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, Math.max(2.5, w * 0.015), 0, Math.PI * 2);
-      ctx.fillStyle = color;
+      ctx.fillStyle = baseColor;
       ctx.fill();
     }
   });
@@ -187,7 +220,7 @@ export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = 
     ctx.beginPath();
     ctx.arc(nose.x, nose.y, Math.max(5, w * 0.035), 0, Math.PI * 2);
     ctx.fillStyle = "transparent";
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = baseColor;
     ctx.lineWidth = Math.max(2, w * 0.014);
     ctx.stroke();
   }
