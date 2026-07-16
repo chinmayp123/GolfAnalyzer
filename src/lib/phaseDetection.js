@@ -15,7 +15,8 @@ import { kpIndex } from "./constants.js";
 // of video resolution and how large the golfer appears in frame.
 
 function getPoint(frame, name, minScore = 0.25) {
-  const kp = frame.keypoints[KEYPOINT_INDEX[name]];
+  const idx = kpIndex(name, frame.keypoints.length);
+  const kp = idx !== undefined ? frame.keypoints[idx] : null;
   return kp && kp.score > minScore ? kp : null;
 }
 
