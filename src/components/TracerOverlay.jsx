@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { TRACER_COLORS } from "../utils/constants.js";
+import { Pencil, Undo2, RotateCcw, Check, Trash2 } from "lucide-react";
+import { TRACER_COLORS } from "../lib/constants.js";
 
 // ─── Shot Tracer (3-Point Guided) ───
 // User places: 1) Start (ball address), 2) Top Apex, 3) Landing Spot
 // The tracer draws a smooth parabolic arc through all three points.
 
+// Step colors are functional — they're drawn on the canvas dots/labels.
 const STEPS = [
   { key: "start", label: "Start Position", desc: "Click where the ball is at address", color: "#22c55e" },
   { key: "apex", label: "Top of Arc", desc: "Click the highest point of the ball flight", color: "#facc15" },
@@ -34,7 +36,7 @@ function generateArcPoints(start, apex, landing, numPoints = 60) {
   return points;
 }
 
-export default function ShotTracer({ videoRef }) {
+export function useShotTracer({ videoRef }) {
   const [tracerMode, setTracerMode] = useState(false);
   const [tracerColor, setTracerColor] = useState("#ffffff");
   const [tracerWidth, setTracerWidth] = useState(3);
@@ -347,69 +349,48 @@ export default function ShotTracer({ videoRef }) {
   };
 
   const allPlaced = keyPoints.start && keyPoints.apex && keyPoints.landing;
+  const activeStep = STEPS[Math.min(currentStep, 2)];
+
+  const toggle = () => {
+    if (tracerMode) resetCurrent();
+    setTracerMode(!tracerMode);
+  };
 
   return {
+    active: tracerMode,
+    toggle,
+    setActive: setTracerMode,
+
     canvas: (
       <canvas
         ref={canvasRef}
         onClick={handleClick}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          cursor: tracerMode ? "crosshair" : "default",
-        }}
+        className="absolute inset-0 h-full w-full"
+        style={{ cursor: tracerMode ? "crosshair" : "default" }}
       />
     ),
 
     badge: tracerMode ? (
       <div
-        style={{
-          position: "absolute",
-          top: 12,
-          left: 12,
-          background: "rgba(0,0,0,0.85)",
-          padding: "8px 16px",
-          borderRadius: 10,
-          fontSize: 13,
-          fontWeight: 700,
-          pointerEvents: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          border: `1px solid ${STEPS[Math.min(currentStep, 2)].color}40`,
-        }}
+        className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-pine-950/90 px-3.5 py-2 text-[13px] font-semibold"
+        style={{ border: `1px solid ${allPlaced ? "#5cbc7f40" : `${activeStep.color}40`}` }}
       >
-        <div
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: allPlaced ? "#00ffaa" : STEPS[Math.min(currentStep, 2)].color,
-            animation: "pulse 1.5s infinite",
-          }}
+        <span
+          className="pulse-dot h-2 w-2 rounded-full"
+          style={{ background: allPlaced ? "#5cbc7f" : activeStep.color }}
         />
-        <span style={{ color: allPlaced ? "#00ffaa" : STEPS[Math.min(currentStep, 2)].color }}>
+        <span style={{ color: allPlaced ? "#5cbc7f" : activeStep.color }}>
           {allPlaced
-            ? "Arc drawn! Click Finish Path to save."
+            ? "Arc drawn. Click Finish Path to save."
             : `Step ${currentStep + 1}/3: ${STEPS[currentStep].desc}`}
         </span>
       </div>
     ) : null,
 
     controls: (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            borderRadius: 12,
-            padding: 16,
-            border: "1px solid rgba(255,255,255,0.06)",
-          }}
-        >
-          <h3 style={{ margin: "0 0 14px", fontSize: 14, color: "#fff" }}>
+      <div className="flex flex-col gap-3">
+        <div className="card p-4">
+          <h3 className="font-display mb-3.5 text-sm font-semibold text-cream-50">
             Shot Tracer
           </h3>
 
@@ -420,80 +401,51 @@ export default function ShotTracer({ videoRef }) {
               }
               setTracerMode(!tracerMode);
             }}
-            style={{
-              width: "100%",
-              padding: "12px",
-              borderRadius: 10,
-              border: "none",
-              cursor: "pointer",
-              background: tracerMode
-                ? "linear-gradient(135deg, #00ffaa, #00cc88)"
-                : "rgba(255,255,255,0.08)",
-              color: tracerMode ? "#000" : "#fff",
-              fontWeight: 700,
-              fontSize: 14,
-              marginBottom: 14,
-            }}
+            className={`${tracerMode ? "btn-primary" : "btn-ghost"} mb-3.5 w-full text-sm`}
           >
+            <Pencil size={14} />
             {tracerMode ? "Plotting Active" : "Start Shot Tracer"}
           </button>
 
           {/* Step indicators */}
           {tracerMode && (
-            <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div className="mb-3.5 flex flex-col gap-1.5">
               {STEPS.map((step, i) => {
                 const placed = !!keyPoints[step.key];
                 const active = currentStep === i && !allPlaced;
                 return (
                   <div
                     key={step.key}
+                    className="flex items-center gap-2.5 rounded-lg px-3 py-2"
                     style={{
-                      padding: "8px 12px",
-                      borderRadius: 8,
                       border: `1px solid ${
-                        active ? step.color : placed ? `${step.color}50` : "rgba(255,255,255,0.06)"
+                        active ? step.color : placed ? `${step.color}50` : "rgba(247,244,234,0.06)"
                       }`,
                       background: active
                         ? `${step.color}15`
                         : placed
                         ? `${step.color}08`
                         : "rgba(0,0,0,0.2)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
                     }}
                   >
                     <div
+                      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
                       style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: "50%",
-                        background: placed ? step.color : "rgba(255,255,255,0.08)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: placed ? "#000" : "#64748b",
-                        flexShrink: 0,
+                        background: placed ? step.color : "rgba(247,244,234,0.08)",
+                        color: placed ? "#0c110d" : "#6f7d72",
                       }}
                     >
-                      {placed ? "✓" : i + 1}
+                      {placed ? <Check size={12} strokeWidth={3} /> : i + 1}
                     </div>
                     <div>
                       <div
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: active ? step.color : placed ? "#e2e8f0" : "#64748b",
-                        }}
+                        className="text-xs font-semibold"
+                        style={{ color: active ? step.color : placed ? "#efe9d9" : "#6f7d72" }}
                       >
                         {step.label}
                       </div>
                       {active && (
-                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                          {step.desc}
-                        </div>
+                        <div className="mt-0.5 text-[11px] text-ink-500">{step.desc}</div>
                       )}
                     </div>
                   </div>
@@ -504,99 +456,64 @@ export default function ShotTracer({ videoRef }) {
 
           {/* Action buttons when plotting */}
           {tracerMode && (
-            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <div className="mb-3.5 flex flex-wrap gap-2">
               <button
                 onClick={undoLastPoint}
                 disabled={currentStep === 0 && !keyPoints.start}
-                style={{
-                  flex: 1,
-                  minWidth: 80,
-                  padding: "8px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.05)",
-                  color: "#94a3b8",
-                  cursor: currentStep > 0 || keyPoints.start ? "pointer" : "not-allowed",
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
+                className="btn-ghost min-w-20 flex-1 !px-2 !py-2 text-xs"
               >
+                <Undo2 size={13} />
                 Undo Point
               </button>
               {allPlaced && (
                 <button
                   onClick={animateArc}
                   disabled={animating}
-                  style={{
-                    flex: 1,
-                    minWidth: 80,
-                    padding: "8px",
-                    borderRadius: 8,
-                    border: "1px solid rgba(250,204,21,0.4)",
-                    background: "rgba(250,204,21,0.1)",
-                    color: animating ? "#64748b" : "#facc15",
-                    cursor: animating ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
+                  className="btn-ghost min-w-20 flex-1 !px-2 !py-2 text-xs !text-gold-400 !border-gold-400/30"
                 >
+                  <RotateCcw size={13} />
                   {animating ? "Playing..." : "Replay"}
                 </button>
               )}
               <button
                 onClick={finishPath}
                 disabled={!allPlaced}
-                style={{
-                  flex: 1,
-                  minWidth: 80,
-                  padding: "8px",
-                  borderRadius: 8,
-                  border: `1px solid ${allPlaced ? "rgba(0,255,170,0.5)" : "rgba(255,255,255,0.06)"}`,
-                  background: allPlaced ? "rgba(0,255,170,0.15)" : "rgba(255,255,255,0.03)",
-                  color: allPlaced ? "#00ffaa" : "#475569",
-                  cursor: allPlaced ? "pointer" : "not-allowed",
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
+                className={`${allPlaced ? "btn-primary" : "btn-ghost"} min-w-20 flex-1 !px-2 !py-2 text-xs`}
               >
+                <Check size={13} />
                 Finish Path
               </button>
             </div>
           )}
 
           {/* Color picker */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>
-              Tracer Color
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="mb-3.5">
+            <div className="mb-2 text-xs text-ink-400">Tracer Color</div>
+            <div className="flex flex-wrap gap-1.5">
               {TRACER_COLORS.map((c) => (
                 <button
                   key={c.value}
                   onClick={() => setTracerColor(c.value)}
+                  title={c.name}
+                  aria-label={c.name}
+                  className="h-8 w-8 rounded-lg transition-transform"
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
+                    background: c.value,
                     border:
                       tracerColor === c.value
-                        ? "2px solid #fff"
-                        : "2px solid rgba(255,255,255,0.1)",
-                    background: c.value,
-                    cursor: "pointer",
-                    transition: "all 0.2s",
+                        ? "2px solid #f7f4ea"
+                        : "2px solid rgba(247,244,234,0.1)",
                     transform: tracerColor === c.value ? "scale(1.15)" : "scale(1)",
                   }}
-                  title={c.name}
                 />
               ))}
             </div>
           </div>
 
           {/* Width slider */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>
-              Line Width: {tracerWidth}px
+          <div className="mb-3.5">
+            <div className="mb-1.5 text-xs text-ink-400">
+              Line Width: <span className="font-mono text-cream-100">{tracerWidth}px</span>
             </div>
             <input
               type="range"
@@ -604,63 +521,36 @@ export default function ShotTracer({ videoRef }) {
               max={8}
               value={tracerWidth}
               onChange={(e) => setTracerWidth(parseInt(e.target.value))}
-              style={{ width: "100%", accentColor: "#00ffaa" }}
+              className="w-full"
             />
           </div>
 
           {/* Glow toggle */}
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              cursor: "pointer",
-              fontSize: 13,
-              marginBottom: 16,
-            }}
-          >
+          <label className="mb-4 flex cursor-pointer items-center gap-2 text-[13px] text-cream-300">
             <input
               type="checkbox"
               checked={tracerGlow}
               onChange={(e) => setTracerGlow(e.target.checked)}
-              style={{ accentColor: "#00ffaa" }}
+              className="accent-fairway-500"
             />
             Glow Effect
           </label>
 
           {/* Undo / Clear completed paths */}
           {tracerPaths.length > 0 && (
-            <div style={{ display: "flex", gap: 8 }}>
+            <div className="flex gap-2">
               <button
                 onClick={() => setTracerPaths((prev) => prev.slice(0, -1))}
-                style={{
-                  flex: 1,
-                  padding: "8px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.05)",
-                  color: "#94a3b8",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
+                className="btn-ghost flex-1 !px-2 !py-2 text-xs"
               >
+                <Undo2 size={13} />
                 Undo Path
               </button>
               <button
                 onClick={() => setTracerPaths([])}
-                style={{
-                  flex: 1,
-                  padding: "8px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  background: "rgba(239,68,68,0.1)",
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
+                className="btn-ghost flex-1 !px-2 !py-2 text-xs !border-red-500/30 !text-red-400"
               >
+                <Trash2 size={13} />
                 Clear All
               </button>
             </div>
@@ -668,40 +558,23 @@ export default function ShotTracer({ videoRef }) {
         </div>
 
         {/* How-to guide */}
-        <div
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            borderRadius: 12,
-            padding: 16,
-            border: "1px solid rgba(255,255,255,0.06)",
-          }}
-        >
-          <h4 style={{ margin: "0 0 8px", fontSize: 13, color: "#94a3b8" }}>
-            How It Works
-          </h4>
-          <ol
-            style={{
-              margin: 0,
-              paddingLeft: 18,
-              fontSize: 12,
-              color: "#64748b",
-              lineHeight: 2,
-            }}
-          >
+        <div className="card p-4">
+          <h4 className="mb-2 text-[13px] font-semibold text-ink-400">How It Works</h4>
+          <ol className="m-0 list-decimal pl-4.5 text-xs leading-loose text-ink-500">
             <li>Click "Start Shot Tracer"</li>
             <li>
-              <span style={{ color: "#22c55e", fontWeight: 600 }}>Click 1:</span>{" "}
+              <span className="font-semibold" style={{ color: STEPS[0].color }}>Click 1:</span>{" "}
               Ball starting position
             </li>
             <li>
-              <span style={{ color: "#facc15", fontWeight: 600 }}>Click 2:</span>{" "}
+              <span className="font-semibold" style={{ color: STEPS[1].color }}>Click 2:</span>{" "}
               Top of the ball flight (apex)
             </li>
             <li>
-              <span style={{ color: "#ef4444", fontWeight: 600 }}>Click 3:</span>{" "}
+              <span className="font-semibold" style={{ color: STEPS[2].color }}>Click 3:</span>{" "}
               Landing spot
             </li>
-            <li>Arc is drawn automatically!</li>
+            <li>Arc is drawn automatically</li>
             <li>Click "Finish Path" to save it</li>
           </ol>
         </div>
@@ -709,3 +582,5 @@ export default function ShotTracer({ videoRef }) {
     ),
   };
 }
+
+export default useShotTracer;
