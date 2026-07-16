@@ -131,10 +131,22 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
   let resolveDone;
   const done = new Promise((r) => (resolveDone = r));
 
+  // If the tab is hidden mid-scan, Chrome throttles our capture timer to
+  // ~1/sec while the video keeps playing — leaving second-wide holes in the
+  // captured swing. Pause playback while hidden so no content is missed;
+  // the scan simply takes longer in wall-clock time.
+  const onVisibility = () => {
+    if (!running) return;
+    if (document.hidden) video.pause();
+    else video.play().catch(() => {});
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+
   const finish = () => {
     if (!running) return;
     running = false;
     video.removeEventListener("ended", finish);
+    document.removeEventListener("visibilitychange", onVisibility);
     clearInterval(pumpId);
     video.pause();
     video.muted = wasMuted;
@@ -177,8 +189,9 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
   } catch {
     finish();
   }
-  // Safety net: never run longer than the clip plus a generous margin.
-  setTimeout(finish, (duration + 5) * 1000 * 1.5);
+  // Safety net: never run longer than the clip plus a generous margin
+  // (generous because the scan pauses while the tab is hidden).
+  setTimeout(finish, (duration + 30) * 1000 * 2);
 
   await done;
   onProgress?.(100);

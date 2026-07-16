@@ -132,6 +132,21 @@ export function detectSwingWindows(frames) {
 }
 
 /**
+ * Position-based phase detection (works at any playback speed, incl. slo-mo).
+ *
+ * Hand HEIGHT relative to the body tells the story of a golf swing:
+ *   address — hands down at ball level, still, before they start rising
+ *   top     — hands at their highest before the strike (end of the plateau:
+ *             "where the player stops pulling the club back")
+ *   downswing (delivery) — hands dropping back through hip height on the way
+ *             to the ball; this is where launch is determined
+ *   impact  — hands return to their address height: the bottom of the arc,
+ *             ball contact
+ *   finish  — hands back up at their highest after impact, held follow-through
+ *
+ * `rel[i]` normalizes hand height: 0 = shoulder line, 1 = hip line,
+ * >1 = below the hips (address zone), negative = above the shoulders.
+ *
  * @param {Array<{time: number, keypoints: Array<{x,y,score}>}>} frames
  * @returns {null | Record<phase, {time, frameIndex}> & {quality: string}}
  */
@@ -139,80 +154,93 @@ export function detectSwingPhases(frames) {
   const kin = computeKinematics(frames);
   if (!kin) return null;
   const { samples, ys, sSpeed, torso, maxSpeed } = kin;
+  const n = samples.length;
 
-  // ── Impact: fastest hands while the hands are low in the frame ──
-  // (y grows downward in image coordinates)
-  let impact = -1;
-  let bestSpeed = -1;
-  samples.forEach((s, i) => {
-    const lowThreshold =
-      s.shoulderY != null && s.hipY != null
-        ? (s.shoulderY + s.hipY) / 2
-        : s.hipY != null
-          ? s.hipY - torso * 0.3
-          : null;
-    const handsLow = lowThreshold == null || ys[i] > lowThreshold;
-    if (handsLow && sSpeed[i] > bestSpeed) {
-      bestSpeed = sSpeed[i];
-      impact = i;
+  // Hand height relative to shoulder(0)→hip(1) span, robust to camera zoom
+  const rel = samples.map((s, i) => {
+    if (s.shoulderY != null && s.hipY != null && s.hipY !== s.shoulderY) {
+      return (ys[i] - s.shoulderY) / (s.hipY - s.shoulderY);
     }
+    return (ys[i] - (samples[0].shoulderY ?? ys[i])) / (torso || 1);
   });
-  if (impact < 0) impact = sSpeed.indexOf(maxSpeed);
 
-  // ── Top of backswing: highest hand position before impact ──
-  let top = 0;
-  let minY = Infinity;
-  for (let i = 0; i < impact; i++) {
-    if (ys[i] < minY) {
-      minY = ys[i];
-      top = i;
+  const ySpan = Math.max(...ys) - Math.min(...ys) || 1;
+
+  // Address-zone hand height: median rel over the early below-hips frames
+  const addrRels = [];
+  for (let i = 0; i < n && addrRels.length < 40; i++) {
+    if (rel[i] >= 1.0) addrRels.push(rel[i]);
+  }
+  addrRels.sort((a, b) => a - b);
+  const addrRel = addrRels.length ? addrRels[Math.floor(addrRels.length / 2)] : 1.15;
+
+  // ── Impact: the first return of the hands to address height AFTER they
+  // have been up (the strike). Found first because the finish wrap can put
+  // the hands even higher than the top of the backswing. ──
+  let wentUp = -1;
+  for (let i = 0; i < n; i++) {
+    if (rel[i] < 0.15) {
+      wentUp = i;
+      break;
     }
   }
-  if (top >= impact) top = Math.max(0, impact - 2);
+  if (wentUp < 0) return null; // hands never rose — not a swing
 
-  // ── Address: last quiet frame (with hands down) before the takeaway ──
+  let impact = -1;
+  for (let i = wentUp + 1; i < n; i++) {
+    if (rel[i] >= addrRel - 0.12) {
+      impact = i;
+      break;
+    }
+  }
+  if (impact < 0) {
+    // Hands never quite got back to address height — take their lowest
+    // point after going up instead.
+    impact = wentUp + 1 < n ? wentUp + 1 : n - 1;
+    for (let i = wentUp + 1; i < n; i++) if (ys[i] > ys[impact]) impact = i;
+  }
+
+  // ── Top: the highest-hands plateau BEFORE impact; take its LAST frame
+  // (the moment the club stops going back — the transition) ──
+  let minYIdx = 0;
+  for (let i = 1; i < impact; i++) if (ys[i] < ys[minYIdx]) minYIdx = i;
+  let top = minYIdx;
+  while (top + 1 < impact - 1 && ys[top + 1] <= ys[minYIdx] + ySpan * 0.04) top++;
+
+  // ── Address: the last moment before the top when the hands were still
+  // down at ball level (start of the takeaway) ──
   let address = 0;
-  const quietThreshold = Math.max(0.1 * maxSpeed, 0.05);
   for (let i = top; i >= 0; i--) {
-    const s = samples[i];
-    const handsDown =
-      s.hipY != null
-        ? ys[i] > s.hipY - torso * 0.4
-        : ys[i] > minY + (ys[impact] - minY) * 0.6;
-    if (sSpeed[i] < quietThreshold && handsDown) {
+    if (rel[i] >= Math.max(1.05, addrRel - 0.1)) {
       address = i;
       break;
     }
   }
   if (address >= top) address = Math.max(0, top - 2);
 
-  // ── Downswing: hands crossing shoulder height on the way down ──
+  // ── Downswing (delivery): hands dropping back through hip height between
+  // the top and impact — where the launch is set up ──
   let downswing = -1;
   for (let i = top + 1; i < impact; i++) {
-    const s = samples[i];
-    if (s.shoulderY != null && ys[i] > s.shoulderY) {
+    if (rel[i] >= 0.5) {
       downswing = i;
       break;
     }
   }
-  if (downswing < 0) downswing = Math.round((top + impact) / 2);
+  if (downswing < 0) downswing = Math.round(top + (impact - top) * 0.75);
   downswing = Math.max(top + 1, Math.min(impact - 1, downswing));
 
-  // ── Finish: hands back above shoulders and decelerated, after impact ──
-  let finish = samples.length - 1;
-  for (let i = Math.min(impact + 2, samples.length - 1); i < samples.length; i++) {
-    const s = samples[i];
-    const handsHigh =
-      s.shoulderY != null ? ys[i] < s.shoulderY : ys[i] < minY + torso * 0.5;
-    if (handsHigh && sSpeed[i] < 0.35 * maxSpeed) {
-      finish = i;
-      break;
-    }
+  // ── Finish: hands back at their highest after impact (held follow-through) ──
+  let finish = Math.min(impact + 1, n - 1);
+  for (let i = impact + 1; i < n; i++) {
+    if (ys[i] <= ys[finish]) finish = i; // <= prefers the LATEST highest point
   }
 
   // Sanity: phases must be strictly ordered in time
   const order = [address, top, downswing, impact, finish];
   const ordered = order.every((v, i) => i === 0 || v > order[i - 1]);
+  // The hands should have travelled a meaningful arc and moved fast at some point
+  const meaningful = ySpan > torso * 0.8 && maxSpeed > 0.4;
 
   const toResult = (idx) => ({
     time: samples[idx].time,
@@ -225,6 +253,6 @@ export function detectSwingPhases(frames) {
     downswing: toResult(downswing),
     impact: toResult(impact),
     followThrough: toResult(finish),
-    quality: ordered && bestSpeed > 0.5 ? "good" : "low",
+    quality: ordered && meaningful ? "good" : "low",
   };
 }
