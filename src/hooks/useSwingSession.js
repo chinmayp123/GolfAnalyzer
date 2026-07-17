@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { getPoseDetector, scanSwingVideo, grabFrame, detectPose } from "../lib/poseModel.js";
 import { detectSwingPhases, detectSwingWindows } from "../lib/phaseDetection.js";
-import { analyzeKeypoints, scorePhase, orientationReference } from "../lib/metrics.js";
+import { analyzeKeypoints, scorePhase, orientationReference, hipYawOf } from "../lib/metrics.js";
 import { SWING_PHASES, PHASE_LABELS } from "../lib/constants.js";
 
 // ─── The analysis session ───
@@ -204,7 +204,17 @@ export default function useSwingSession({ proProfile }) {
   const buildSnapshot = useCallback(
     (time, keypoints, world, phase) => {
       if (phase === "address") {
+        const topHipYaw = orientationRefRef.current?.topHipYaw;
         orientationRefRef.current = orientationReference(world);
+        if (orientationRefRef.current && topHipYaw != null) {
+          orientationRefRef.current.topHipYaw = topHipYaw;
+        }
+      }
+      if (phase === "backswing") {
+        const topHipYaw = hipYawOf(world);
+        if (topHipYaw != null) {
+          orientationRefRef.current = { ...(orientationRefRef.current || {}), topHipYaw };
+        }
       }
       const measurements = analyzeKeypoints(keypoints, world, orientationRefRef.current);
       const benchmarks = proProfile?.benchmarks?.[phase] || {};
@@ -289,6 +299,7 @@ export default function useSwingSession({ proProfile }) {
         onFrame: (frame) => setCurrentPose({ keypoints: frame.keypoints, world: frame.world }),
       });
       setScannedFrames(frames);
+      if (import.meta.env.DEV) window.__scanFrames = frames;
 
       setAnalyzeStage("detecting");
 

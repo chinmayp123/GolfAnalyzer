@@ -94,7 +94,7 @@ const METRIC_EXPLAIN = {
   hipTurn:
     "How far your hips have rotated from where they started at address. Too little restricts your backswing; too much wastes the coil.",
   hipOpen:
-    "How open your hips are to the target at impact, versus where they were at setup. Pros clear their hips well before the club arrives.",
+    "How much your hips rotate open between the top of the backswing and impact. Pros lead the downswing with their hips and keep clearing through the strike.",
   leftArmAngle:
     "How straight your lead arm is. A bent lead arm at the top shrinks your swing arc and costs you speed and consistency.",
   wristHinge:

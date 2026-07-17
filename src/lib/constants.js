@@ -127,7 +127,7 @@ export const METRIC_LABELS = {
   hipSlide: "Hip Lateral Shift",
   lagAngle: "Wrist Lag",
   shoulderTilt: "Shoulder Tilt",
-  hipOpen: "Hips Open at Impact",
+  hipOpen: "Hip Clearance (Top to Impact)",
   shaftLean: "Forward Shaft Lean",
   headBehindBall: "Head Behind Ball",
   extensionAngle: "Arm Extension",

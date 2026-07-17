@@ -128,6 +128,7 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
   let running = true;
   let busy = false;
   let lastCapturedTime = -1;
+  let stallSince = null;
   let resolveDone;
   const done = new Promise((r) => (resolveDone = r));
 
@@ -161,7 +162,21 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
       finish();
       return;
     }
-    if (t === lastCapturedTime || t < startTime) return;
+    if (t === lastCapturedTime || t < startTime) {
+      // Some clips stop advancing a few frames short of `duration` without
+      // ever firing `ended`, which would hang the scan at ~97%. Treat a
+      // playhead that stays stuck while the tab is visible as the end.
+      if (document.hidden) {
+        stallSince = null;
+      } else if (t === lastCapturedTime) {
+        if (stallSince == null) stallSince = performance.now();
+        const stalled = performance.now() - stallSince;
+        if (stalled > 1500 && video.paused) video.play().catch(() => {});
+        if (stalled > 4000) finish();
+      }
+      return;
+    }
+    stallSince = null;
     lastCapturedTime = t;
     busy = true;
     try {

@@ -1,5 +1,5 @@
 import { SWING_PHASES } from "./constants.js";
-import { analyzeKeypoints, scorePhase, orientationReference } from "./metrics.js";
+import { analyzeKeypoints, scorePhase, orientationReference, hipYawOf } from "./metrics.js";
 import { detectSwingPhases } from "./phaseDetection.js";
 
 /**
@@ -23,6 +23,10 @@ export function scoreSwing(frames, proProfile) {
     const frame = frames[hit.frameIndex] || frames.find((f) => f.time === hit.time);
     if (!frame) return;
     if (phase === "address") ref = orientationReference(frame.world);
+    if (phase === "backswing") {
+      const topHipYaw = hipYawOf(frame.world);
+      if (topHipYaw != null) ref = { ...(ref || {}), topHipYaw };
+    }
     const measurements = analyzeKeypoints(frame.keypoints, frame.world || null, ref);
     const benchmarks = proProfile?.benchmarks?.[phase] || {};
     const { metrics, overallScore } = scorePhase(measurements, benchmarks);

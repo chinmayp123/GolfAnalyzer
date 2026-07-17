@@ -74,8 +74,8 @@ export function scoreMetric(value, benchmark) {
 
 /**
  * Orientation reference captured at address — rotation metrics (hip turn,
- * hips open, chest to target) are measured relative to this, which makes
- * them camera-angle independent.
+ * chest to target) are measured relative to this, which makes them
+ * camera-angle independent.
  */
 export function orientationReference(world) {
   if (!world) return null;
@@ -88,6 +88,16 @@ export function orientationReference(world) {
     hipYaw: lineYaw(lh, rh),
     shoulderYaw: lineYaw(ls, rs),
   };
+}
+
+// Hip-line yaw of a single frame — used to record the top-of-backswing
+// orientation that hip clearance is measured against.
+export function hipYawOf(world) {
+  if (!world) return null;
+  const lh = world[kpIndex("left_hip", world.length)];
+  const rh = world[kpIndex("right_hip", world.length)];
+  if (!lh || !rh) return null;
+  return lineYaw(lh, rh);
 }
 
 /**
@@ -155,10 +165,19 @@ export function analyzeKeypoints(kps, world = null, ref = null) {
     const hipYaw = lineYaw(wLh, wRh);
     // X-factor style separation — reference-free
     m.shoulderTurn = Math.abs(yawDelta(shoulderYaw, hipYaw));
-    if (ref) {
-      m.hipTurn = Math.abs(yawDelta(hipYaw, ref.hipYaw));
-      m.hipOpen = Math.abs(yawDelta(hipYaw, ref.hipYaw));
+    if (ref?.hipYaw != null) m.hipTurn = Math.abs(yawDelta(hipYaw, ref.hipYaw));
+    if (ref?.shoulderYaw != null) {
       m.chestFacing = Math.abs(yawDelta(shoulderYaw, ref.shoulderYaw));
+    }
+    // Hip clearance: rotation from the TOP of the backswing to this frame.
+    // Measured against the top rather than address because the pose model's
+    // yaw estimate lags through the strike in down-the-line footage — hips
+    // read near-square at impact, which made a vs-address benchmark
+    // meaningless (a pro measured ~1°). The top→impact delta captures the
+    // same real rotation and carries the same lag on both sides of the
+    // comparison.
+    if (ref?.topHipYaw != null) {
+      m.hipOpen = Math.abs(yawDelta(hipYaw, ref.topHipYaw));
     }
     // Shoulder tilt: vertical drop across the shoulder line
     const shoulderWidth = Math.hypot(wRs.x - wLs.x, wRs.y - wLs.y, wRs.z - wLs.z);
