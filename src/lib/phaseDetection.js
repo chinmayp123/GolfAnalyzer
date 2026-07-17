@@ -222,7 +222,7 @@ export function detectSwingPhases(frames) {
   // the top and impact — where the launch is set up ──
   let downswing = -1;
   for (let i = top + 1; i < impact; i++) {
-    if (rel[i] >= 0.5) {
+    if (rel[i] >= 0.8) {
       downswing = i;
       break;
     }
