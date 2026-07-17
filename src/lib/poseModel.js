@@ -132,23 +132,24 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
   let resolveDone;
   const done = new Promise((r) => (resolveDone = r));
 
-  // If the tab is hidden mid-scan, Chrome throttles our capture timer to
-  // ~1/sec while the video keeps playing — leaving second-wide holes in the
-  // captured swing. Pause playback while hidden so no content is missed;
-  // the scan simply takes longer in wall-clock time.
+  // Hidden tabs may present video frames at a reduced rate, so crawl the
+  // playback while hidden — at quarter speed even a few presented frames
+  // per second sample the swing densely. Full speed resumes on visibility.
+  const HIDDEN_RATE = 0.25;
   const onVisibility = () => {
     if (!running) return;
-    if (document.hidden) video.pause();
-    else video.play().catch(() => {});
+    video.playbackRate = document.hidden ? HIDDEN_RATE : 1;
   };
   document.addEventListener("visibilitychange", onVisibility);
+  onVisibility();
 
   const finish = () => {
     if (!running) return;
     running = false;
     video.removeEventListener("ended", finish);
     document.removeEventListener("visibilitychange", onVisibility);
-    clearInterval(pumpId);
+    pump.port1.close();
+    pump.port2.close();
     video.pause();
     video.muted = wasMuted;
     video.playbackRate = wasRate;
@@ -165,10 +166,8 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
     if (t === lastCapturedTime || t < startTime) {
       // Some clips stop advancing a few frames short of `duration` without
       // ever firing `ended`, which would hang the scan at ~97%. Treat a
-      // playhead that stays stuck while the tab is visible as the end.
-      if (document.hidden) {
-        stallSince = null;
-      } else if (t === lastCapturedTime) {
+      // playhead that stays stuck as the end.
+      if (t === lastCapturedTime) {
         if (stallSince == null) stallSince = performance.now();
         const stalled = performance.now() - stallSince;
         if (stalled > 1500 && video.paused) video.play().catch(() => {});
@@ -198,15 +197,27 @@ export async function scanSwingVideo({ video, detector, startTime, endTime, onPr
   };
 
   video.addEventListener("ended", finish);
-  const pumpId = setInterval(capture, 30);
+  // Timer-free capture pump. setInterval in a hidden tab is throttled to as
+  // little as once per MINUTE (Chrome intensive throttling), which starves
+  // the scan. A MessageChannel self-chain is not a timer task, so it keeps
+  // firing at full rate regardless of visibility; the busy flag and the
+  // lastCapturedTime gate keep the model from re-reading the same frame.
+  const pump = new MessageChannel();
+  pump.port1.onmessage = () => {
+    if (!running) return;
+    capture().finally(() => {
+      if (running) pump.port2.postMessage(0);
+    });
+  };
+  pump.port2.postMessage(0);
   try {
     await video.play();
   } catch {
     finish();
   }
   // Safety net: never run longer than the clip plus a generous margin
-  // (generous because the scan pauses while the tab is hidden).
-  setTimeout(finish, (duration + 30) * 1000 * 2);
+  // (sized for a scan that crawls at HIDDEN_RATE the whole way through).
+  setTimeout(finish, (duration / HIDDEN_RATE + 60) * 1000);
 
   await done;
   onProgress?.(100);

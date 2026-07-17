@@ -239,9 +239,13 @@ export default function useSwingSession({ proProfile }) {
     }
   }, []);
 
+  // Manual phase re-marks, kept per swing window so switching between the
+  // swings found in a clip (and back) doesn't silently discard corrections.
+  const manualMarksRef = useRef({});
+
   // ── Detect + score one swing window out of the scanned frames ──
   const analyzeWindow = useCallback(
-    async (frames, window) => {
+    async (frames, window, windowIndex = 0) => {
       const windowFrames = window
         ? frames.filter((f) => f.time >= window.start && f.time <= window.end)
         : frames;
@@ -252,13 +256,24 @@ export default function useSwingSession({ proProfile }) {
       setPhaseDetection(detection);
       setUserSwingFrames(usable);
 
+      const manual = manualMarksRef.current[windowIndex] || {};
       const snapshots = {};
       // SWING_PHASES order matters: address runs first and establishes the
       // orientation reference the rotation metrics measure against.
       SWING_PHASES.forEach((phase) => {
-        const hit = detection[phase];
-        if (!hit) return;
-        const frame = usable[hit.frameIndex] || usable.find((f) => f.time === hit.time);
+        let frame = null;
+        if (manual[phase] != null) {
+          // Re-apply the user's mark: nearest scanned frame to their time
+          frame = usable.reduce((best, f) =>
+            !best || Math.abs(f.time - manual[phase]) < Math.abs(best.time - manual[phase])
+              ? f
+              : best,
+          null);
+        } else {
+          const hit = detection[phase];
+          if (!hit) return;
+          frame = usable[hit.frameIndex] || usable.find((f) => f.time === hit.time);
+        }
         if (!frame) return;
         snapshots[phase] = buildSnapshot(frame.time, frame.keypoints, frame.world, phase);
       });
@@ -316,7 +331,8 @@ export default function useSwingSession({ proProfile }) {
       }
       setActiveSwingIndex(windowIndex);
 
-      const quality = await analyzeWindow(frames, windows[windowIndex] || null);
+      manualMarksRef.current = {}; // fresh scan — clear stale re-marks
+      const quality = await analyzeWindow(frames, windows[windowIndex] || null, windowIndex);
       if (!quality) {
         return {
           ok: false,
@@ -341,7 +357,7 @@ export default function useSwingSession({ proProfile }) {
       if (!scannedFrames || !swingWindows[index] || analyzing) return;
       setActiveSwingIndex(index);
       setThumbnail(null);
-      await analyzeWindow(scannedFrames, swingWindows[index]);
+      await analyzeWindow(scannedFrames, swingWindows[index], index);
     },
     [scannedFrames, swingWindows, analyzing, analyzeWindow]
   );
@@ -359,6 +375,8 @@ export default function useSwingSession({ proProfile }) {
         if (!frameCanvas) return;
         const pose = detectPose(detector, frameCanvas, frameCanvas.width, frameCanvas.height);
         if (pose) {
+          const marks = (manualMarksRef.current[activeSwingIndex] ||= {});
+          marks[phase] = video.currentTime;
           setPhaseSnapshots((prev) => ({
             ...prev,
             [phase]: buildSnapshot(video.currentTime, pose.keypoints, pose.world, phase),
@@ -368,7 +386,7 @@ export default function useSwingSession({ proProfile }) {
         /* ignore */
       }
     },
-    [buildSnapshot]
+    [buildSnapshot, activeSwingIndex]
   );
 
   // ── Re-score existing snapshots when the selected pro changes ──

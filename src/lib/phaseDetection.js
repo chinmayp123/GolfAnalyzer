@@ -124,7 +124,10 @@ export function detectSwingWindows(frames) {
   const t0 = samples[0].time;
   const tEnd = samples[samples.length - 1].time;
   return swings.map((r) => ({
-    start: Math.max(t0, r.start - 1.2),
+    // Generous pre-roll: a slow (or slo-mo) takeaway crosses the activity
+    // threshold well after the golfer settled, and address must be inside
+    // the window to anchor the rotation reference.
+    start: Math.max(t0, r.start - 2.5),
     end: Math.min(tEnd, r.end + 1.2),
     peakTime: r.peakTime,
     peakSpeed: r.peakSpeed,
@@ -174,9 +177,6 @@ export function detectSwingPhases(frames) {
   addrRels.sort((a, b) => a - b);
   const addrRel = addrRels.length ? addrRels[Math.floor(addrRels.length / 2)] : 1.15;
 
-  // ── Impact: the first return of the hands to address height AFTER they
-  // have been up (the strike). Found first because the finish wrap can put
-  // the hands even higher than the top of the backswing. ──
   let wentUp = -1;
   for (let i = 0; i < n; i++) {
     if (rel[i] < 0.15) {
@@ -186,26 +186,59 @@ export function detectSwingPhases(frames) {
   }
   if (wentUp < 0) return null; // hands never rose — not a swing
 
-  let impact = -1;
+  // ── The strike doesn't always bring the hands fully back to address
+  // height (an amateur's hands at impact often sit a touch higher than at
+  // setup), so anchor on the first time they come back NEAR address depth
+  // after being up. Demanding a full return latched onto the golfer
+  // lowering their hands to relax seconds after the real impact. ──
+  const returnRel = addrRel - 0.35;
+  let softReturn = -1;
   for (let i = wentUp + 1; i < n; i++) {
-    if (rel[i] >= addrRel - 0.12) {
-      impact = i;
+    if (rel[i] >= returnRel) {
+      softReturn = i;
       break;
     }
   }
+  if (softReturn < 0) {
+    // A sparse capture can miss the strike entirely — fall back to the
+    // frame where the hands come closest back to address depth.
+    softReturn = Math.min(wentUp + 1, n - 1);
+    for (let i = wentUp + 1; i < n; i++) {
+      if (rel[i] > rel[softReturn]) softReturn = i;
+    }
+  }
+
+  // ── Top: the highest-hands plateau BEFORE the hands come back down;
+  // take its LAST frame (the moment the club stops going back). Bounded by
+  // softReturn because the finish wrap can be higher than the top. ──
+  let minYIdx = 0;
+  for (let i = 1; i < softReturn; i++) if (ys[i] < ys[minYIdx]) minYIdx = i;
+  let top = minYIdx;
+  while (top + 1 < softReturn - 1 && ys[top + 1] <= ys[minYIdx] + ySpan * 0.04) top++;
+
+  // ── Impact: the crest of the first hand dip after the top that reaches
+  // near address depth — the bottom of the hand arc during the strike.
+  // Track the running peak and stop only once rel has fallen a real
+  // margin (0.08) below it, so noise wiggles don't end the walk early and
+  // a slow (slo-mo) rise into the finish doesn't carry it past the crest. ──
+  let impact = -1;
+  for (let i = Math.max(top + 1, softReturn); i < n; i++) {
+    if (rel[i] < returnRel) continue;
+    let peak = i;
+    let j = i;
+    while (j + 1 < n && rel[j + 1] > rel[peak] - 0.08) {
+      j++;
+      if (rel[j] > rel[peak]) peak = j;
+    }
+    impact = peak;
+    break;
+  }
   if (impact < 0) {
-    // Hands never quite got back to address height — take their lowest
+    // Hands never came back near address height — take their lowest
     // point after going up instead.
     impact = wentUp + 1 < n ? wentUp + 1 : n - 1;
     for (let i = wentUp + 1; i < n; i++) if (ys[i] > ys[impact]) impact = i;
   }
-
-  // ── Top: the highest-hands plateau BEFORE impact; take its LAST frame
-  // (the moment the club stops going back — the transition) ──
-  let minYIdx = 0;
-  for (let i = 1; i < impact; i++) if (ys[i] < ys[minYIdx]) minYIdx = i;
-  let top = minYIdx;
-  while (top + 1 < impact - 1 && ys[top + 1] <= ys[minYIdx] + ySpan * 0.04) top++;
 
   // ── Address: the last moment before the top when the hands were still
   // down at ball level (start of the takeaway) ──
