@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, Film } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Film } from "lucide-react";
 import { SWING_PHASES } from "../lib/constants.js";
 import { detectSwingPhases } from "../lib/phaseDetection.js";
 import { normalizeFullSwingFrames, lerpPose, drawFigure } from "../lib/poseDrawing.js";
 
-// ─── Side-by-side animated skeleton playback: user vs pro ───
+// ─── Overlaid skeleton stage: you vs pro on one canvas ───
 // Playback is PHASE-ALIGNED: one shared progress value 0..1 is split into
 // equal segments between phase anchors (address → top → downswing → impact →
 // finish), and each side interpolates within its OWN real timing for that
@@ -12,8 +12,16 @@ import { normalizeFullSwingFrames, lerpPose, drawFigure } from "../lib/poseDrawi
 // even if one swing (or clip) is much longer than the other.
 
 const USER_COLOR = "#5cbc7f";
+const PRO_COLOR = "#d8b25c";
 const BASE_CYCLE_MS = 2600;
-const SPEEDS = [0.25, 0.5, 1];
+
+const PHASE_CAPTIONS = {
+  address: "ADDRESS",
+  backswing: "TOP",
+  downswing: "DOWNSWING",
+  impact: "IMPACT",
+  followThrough: "FINISH",
+};
 
 function poseAtProgress(frames, progress) {
   if (!frames || frames.length === 0) return null;
@@ -43,17 +51,18 @@ function poseAtTime(frames, t) {
   return lerpPose(a.pose, b.pose, (t - a.time) / span);
 }
 
-// Ordered, valid phase-anchor times for one side, or null if not enough info
+// Ordered, valid phase anchors for one side: {phases: [name], times: [s]}
 function buildAnchors(phaseTimes) {
   if (!phaseTimes) return null;
-  const anchors = SWING_PHASES.map((p) => phaseTimes[p]).filter(
-    (t) => typeof t === "number" && !isNaN(t)
+  const phases = SWING_PHASES.filter(
+    (p) => typeof phaseTimes[p] === "number" && !isNaN(phaseTimes[p])
   );
-  if (anchors.length < 3) return null;
-  for (let i = 1; i < anchors.length; i++) {
-    if (anchors[i] <= anchors[i - 1]) return null; // must be strictly ordered
+  if (phases.length < 3) return null;
+  const times = phases.map((p) => phaseTimes[p]);
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] <= times[i - 1]) return null; // must be strictly ordered
   }
-  return anchors;
+  return { phases, times };
 }
 
 // Build one side's playback plan: frames clipped to the swing (so the
@@ -63,40 +72,60 @@ function buildPlan(frames, phaseTimes) {
   const anchors = buildAnchors(phaseTimes);
   let clipped = frames;
   if (anchors) {
-    const start = anchors[0] - 0.25;
-    const end = anchors[anchors.length - 1] + 0.35;
+    const start = anchors.times[0] - 0.25;
+    const end = anchors.times[anchors.times.length - 1] + 0.35;
     const inWindow = frames.filter((f) => f.time >= start && f.time <= end);
     if (inWindow.length >= 2) clipped = inWindow;
   }
   return { frames: normalizeFullSwingFrames(clipped), anchors };
 }
 
-function poseForPlan(plan, progress) {
-  if (!plan) return null;
-  if (!plan.anchors) return poseAtProgress(plan.frames, progress);
-  const anchors = plan.anchors;
-  const nSeg = anchors.length - 1;
+// Map shared progress → this side's real clip time (or null without anchors)
+function timeForPlan(plan, progress) {
+  if (!plan?.anchors) return null;
+  const { times } = plan.anchors;
+  const nSeg = times.length - 1;
   const x = Math.min(progress, 0.9999) * nSeg;
   const seg = Math.min(Math.floor(x), nSeg - 1);
-  const frac = x - seg;
-  const t = anchors[seg] + frac * (anchors[seg + 1] - anchors[seg]);
+  return times[seg] + (x - seg) * (times[seg + 1] - times[seg]);
+}
+
+function poseForPlan(plan, progress) {
+  if (!plan) return null;
+  const t = timeForPlan(plan, progress);
+  if (t === null) return poseAtProgress(plan.frames, progress);
   return poseAtTime(plan.frames, t);
 }
 
-export default function SkeletonCompare({ userFrames, userPhaseTimes, proProfile }) {
-  const userCanvasRef = useRef(null);
-  const proCanvasRef = useRef(null);
+function formatClock(t) {
+  if (t == null || isNaN(t)) return "";
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`;
+}
+
+/**
+ * The redesigned skeleton stage. Controlled phase selection: `selectedPhase`
+ * seeks the stage to that phase's frame; during playback the stage reports
+ * the phase it is passing through via `onPhaseChange`.
+ */
+export default function SkeletonCompare({
+  userFrames,
+  userPhaseTimes,
+  proProfile,
+  selectedPhase = null,
+  onPhaseChange = null,
+  className = "",
+}) {
+  const canvasRef = useRef(null);
   const animRef = useRef(null);
   const lastTsRef = useRef(null);
-  const speedRef = useRef(1);
+  // Phase this component last derived/seeked to — lets us tell an external
+  // scrubber click apart from the echo of our own onPhaseChange call.
+  const currentPhaseRef = useRef(null);
 
-  const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState(1);
+  const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
 
   const proFrames = proProfile?.fullSwingFrames;
 
@@ -120,28 +149,77 @@ export default function SkeletonCompare({ userFrames, userPhaseTimes, proProfile
     return buildPlan(proFrames, times);
   }, [proFrames, proProfile?.phaseTimes]);
 
-  const userNorm = userPlan?.frames || null;
-  const proNorm = proPlan?.frames || null;
+  // Phase ↔ progress mapping follows the USER's anchors
+  const anchorPhases = userPlan?.anchors?.phases || null;
+
+  const progressForPhase = (phase) => {
+    if (!anchorPhases) return null;
+    const i = anchorPhases.indexOf(phase);
+    if (i < 0) return null;
+    const nSeg = anchorPhases.length - 1;
+    return nSeg > 0 ? Math.min(i / nSeg, 0.9999) : 0;
+  };
+
+  const phaseAtProgress = (p) => {
+    if (!anchorPhases) return null;
+    const nSeg = anchorPhases.length - 1;
+    if (nSeg <= 0) return anchorPhases[0];
+    // Snap caption to the nearest anchor so "IMPACT" shows around impact,
+    // not only after crossing it.
+    const idx = Math.min(Math.round(p * nSeg), nSeg);
+    return anchorPhases[idx];
+  };
+
+  // External phase selection (scrubber) → seek + pause
+  useEffect(() => {
+    if (!selectedPhase || selectedPhase === currentPhaseRef.current) return;
+    const target = progressForPhase(selectedPhase);
+    currentPhaseRef.current = selectedPhase;
+    if (target !== null) {
+      setPlaying(false);
+      setProgress(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhase, anchorPhases]);
+
+  // During playback, report the phase we're passing through
+  useEffect(() => {
+    if (!playing) return;
+    const phase = phaseAtProgress(progress);
+    if (phase && phase !== currentPhaseRef.current) {
+      currentPhaseRef.current = phase;
+      onPhaseChange?.(phase);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress, playing]);
 
   // Draw both figures whenever progress changes
   useEffect(() => {
-    if (userCanvasRef.current && userPlan) {
-      drawFigure(userCanvasRef.current, poseForPlan(userPlan, progress), { color: USER_COLOR });
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (proPlan) {
+      drawFigure(canvas, poseForPlan(proPlan, progress), {
+        color: proProfile?.color || PRO_COLOR,
+        alpha: 0.5,
+      });
     }
-    if (proCanvasRef.current && proPlan) {
-      drawFigure(proCanvasRef.current, poseForPlan(proPlan, progress), {
-        color: proProfile?.color || "#d8b25c",
+    if (userPlan) {
+      drawFigure(canvas, poseForPlan(userPlan, progress), {
+        color: USER_COLOR,
+        clear: !proPlan,
+        ground: !proPlan,
+        glow: "rgba(92,188,127,0.4)",
       });
     }
   }, [progress, userPlan, proPlan, proProfile?.color]);
 
   // Playback loop
   useEffect(() => {
-    if (!playing || (!userNorm && !proNorm)) return;
+    if (!playing || (!userPlan && !proPlan)) return;
     lastTsRef.current = null;
     const tick = (ts) => {
       if (lastTsRef.current !== null) {
-        const delta = ((ts - lastTsRef.current) * speedRef.current) / BASE_CYCLE_MS;
+        const delta = (ts - lastTsRef.current) / BASE_CYCLE_MS;
         setProgress((p) => (p + delta) % 1);
       }
       lastTsRef.current = ts;
@@ -151,9 +229,9 @@ export default function SkeletonCompare({ userFrames, userPhaseTimes, proProfile
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [playing, userNorm, proNorm]);
+  }, [playing, userPlan, proPlan]);
 
-  if (!proNorm) {
+  if (!proPlan) {
     return (
       <div className="card p-6 flex items-center gap-3">
         <Film size={18} className="text-ink-500 shrink-0" />
@@ -164,66 +242,82 @@ export default function SkeletonCompare({ userFrames, userPhaseTimes, proProfile
     );
   }
 
+  const stepPhase = (dir) => {
+    if (!anchorPhases) return;
+    const current = currentPhaseRef.current || phaseAtProgress(progress) || anchorPhases[0];
+    const i = anchorPhases.indexOf(current);
+    const next = anchorPhases[Math.max(0, Math.min(anchorPhases.length - 1, i + dir))];
+    if (!next || next === current) return;
+    currentPhaseRef.current = next;
+    setPlaying(false);
+    const target = progressForPhase(next);
+    if (target !== null) setProgress(target);
+    onPhaseChange?.(next);
+  };
+
+  const shownPhase = playing
+    ? phaseAtProgress(progress)
+    : selectedPhase || phaseAtProgress(progress);
+  const userTime = timeForPlan(userPlan, progress);
+  const proName = (proProfile?.name || "Pro").split(" ").pop();
+
   return (
-    <div className="card p-5">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="rounded-lg overflow-hidden bg-pine-900 border border-pine-700">
-            <canvas ref={userCanvasRef} width={300} height={400} className="w-full block" />
-          </div>
-          <p className="text-center text-xs font-medium mt-2" style={{ color: USER_COLOR }}>
-            You
-          </p>
-        </div>
-        <div>
-          <div className="rounded-lg overflow-hidden bg-pine-900 border border-pine-700">
-            <canvas ref={proCanvasRef} width={300} height={400} className="w-full block" />
-          </div>
-          <p
-            className="text-center text-xs font-medium mt-2"
-            style={{ color: proProfile?.color || "#d8b25c" }}
-          >
-            {proProfile?.name || "Pro"}
-          </p>
-        </div>
+    <div
+      className={`relative rounded-[14px] overflow-hidden border border-cream-50/7 ${className}`}
+      style={{
+        background: "#07100b",
+        backgroundImage:
+          "repeating-linear-gradient(135deg,#0a140d,#0a140d 10px,#08110b 10px,#08110b 20px)",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={330}
+        height={430}
+        className="block h-full w-full object-contain py-2"
+      />
+
+      {/* phase + time caption */}
+      <div className="absolute top-2.5 left-3 font-mono text-[10px] text-cream-300 tracking-wide">
+        {shownPhase ? PHASE_CAPTIONS[shownPhase] : "SWING"}
+        {userTime != null && <> &middot; {formatClock(userTime)}</>}
       </div>
 
-      <div className="flex items-center gap-3 mt-4">
+      {/* legend */}
+      <div className="absolute top-2.5 right-3 flex gap-2.5 font-mono text-[9px]">
+        <span style={{ color: USER_COLOR }}>&mdash; YOU</span>
+        <span style={{ color: proProfile?.color || PRO_COLOR }}>
+          &mdash; {proName.toUpperCase()}
+        </span>
+      </div>
+
+      {/* playback transport */}
+      <div className="absolute bottom-2.5 inset-x-0 flex items-center justify-center gap-4">
+        <button
+          onClick={() => stepPhase(-1)}
+          className="p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
+          aria-label="Previous phase"
+        >
+          <SkipBack size={15} />
+        </button>
         <button
           onClick={() => setPlaying((p) => !p)}
-          className="btn-ghost !p-2.5 shrink-0"
+          className="w-14 h-14 rounded-full border-none cursor-pointer flex items-center justify-center text-pine-950"
+          style={{
+            background: "#5cbc7f",
+            boxShadow: "0 0 18px rgba(92,188,127,0.4)",
+          }}
           aria-label={playing ? "Pause" : "Play"}
         >
-          {playing ? <Pause size={16} /> : <Play size={16} />}
+          {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
         </button>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.001}
-          value={progress}
-          onChange={(e) => {
-            setPlaying(false);
-            setProgress(parseFloat(e.target.value));
-          }}
-          className="flex-1"
-          aria-label="Swing progress"
-        />
-        <div className="flex gap-1 shrink-0">
-          {SPEEDS.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSpeed(s)}
-              className={`px-2 py-1 rounded-md text-xs font-mono transition-colors ${
-                speed === s
-                  ? "bg-fairway-600/30 text-fairway-300 border border-fairway-600/40"
-                  : "text-ink-400 border border-transparent hover:text-cream-300"
-              }`}
-            >
-              {s}x
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={() => stepPhase(1)}
+          className="p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
+          aria-label="Next phase"
+        >
+          <SkipForward size={15} />
+        </button>
       </div>
     </div>
   );

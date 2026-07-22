@@ -118,13 +118,27 @@ export function lerpPose(poseA, poseB, t) {
   return result;
 }
 
-/** Draw a stick figure from a named 0-1 pose onto a canvas. */
-export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = {}) {
+/**
+ * Draw a stick figure from a named 0-1 pose onto a canvas.
+ * Pass clear:false + alpha/glow to composite a second figure on the same
+ * canvas (used by the you-vs-pro overlay stage).
+ */
+export function drawFigure(
+  canvas,
+  pose,
+  { color = "#5cbc7f", ground = true, clear = true, alpha = 1, glow = null } = {}
+) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
+  if (clear) ctx.clearRect(0, 0, w, h);
   if (!pose) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (glow) {
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = Math.max(4, w * 0.02);
+  }
 
   if (ground) {
     ctx.strokeStyle = "rgba(247,244,234,0.08)";
@@ -180,4 +194,5 @@ export function drawFigure(canvas, pose, { color = "#5cbc7f", ground = true } = 
     ctx.lineWidth = Math.max(2, w * 0.014);
     ctx.stroke();
   }
+  ctx.restore();
 }

@@ -51,7 +51,9 @@ body {
   min-height: 100vh;
 }
 
-/* Reusable surfaces */
+/* Reusable surfaces — layered so Tailwind utilities (hidden, p-*, …) can
+   override them; unlayered CSS would silently beat every utility. */
+@layer components {
 .card {
   background: color-mix(in srgb, var(--color-pine-850) 82%, transparent);
   border: 1px solid rgba(247, 244, 234, 0.07);
@@ -92,6 +94,7 @@ body {
 }
 .btn-ghost:hover:not(:disabled) { background: rgba(247, 244, 234, 0.08); color: #f7f4ea; }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
