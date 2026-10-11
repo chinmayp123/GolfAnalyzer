@@ -30,10 +30,51 @@
   --font-display: "Fraunces", Georgia, serif;
   --font-sans: "Instrument Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Strong ease-out for UI enter/press motion (built-in `ease` is too weak) */
+  --ease-out-ui: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 html {
   color-scheme: dark;
+  /* Native feel on phones: no grey tap flash, no font inflation in landscape */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Keyboard focus ring, in-palette. Text fields show focus via their border. */
+:focus-visible {
+  outline: 2px solid var(--color-fairway-400);
+  outline-offset: 2px;
+}
+input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="number"]:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
+/* Controls: fire click immediately (no double-tap-zoom wait) and never
+   select their label on long-press. Content text stays selectable. */
+button,
+[role="button"] {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* iOS zooms the page into any text field under 16px. Only on touch. */
+@media (pointer: coarse) {
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="email"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 /* Keep scrolled-to videos clear of the sticky header */
@@ -49,6 +90,7 @@ body {
     var(--color-pine-950);
   color: var(--color-cream-100);
   min-height: 100vh;
+  min-height: 100dvh; /* tracks the mobile URL bar collapsing */
 }
 
 /* Reusable surfaces — layered so Tailwind utilities (hidden, p-*, …) can
@@ -72,9 +114,11 @@ body {
   border-radius: 10px;
   padding: 10px 20px;
   cursor: pointer;
-  transition: filter 0.15s, transform 0.1s;
+  transition: filter 150ms var(--ease-out-ui), transform 100ms var(--ease-out-ui);
 }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+}
 .btn-primary:active:not(:disabled) { transform: translateY(1px); }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -90,17 +134,36 @@ body {
   border-radius: 10px;
   padding: 10px 20px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 150ms, color 150ms, transform 100ms var(--ease-out-ui);
 }
-.btn-ghost:hover:not(:disabled) { background: rgba(247, 244, 234, 0.08); color: #f7f4ea; }
+@media (hover: hover) {
+  .btn-ghost:hover:not(:disabled) { background: rgba(247, 244, 234, 0.08); color: #f7f4ea; }
+}
+.btn-ghost:active:not(:disabled) { transform: translateY(1px); }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Extends a small icon button's hit area to 44×44 without changing its
+   visual size. Only for isolated buttons — neighbours in a tight row would
+   get overlapping hit zones. */
+.tap-target { position: relative; }
+.tap-target::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-pine-700); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-pine-600); }
+@media (hover: hover) {
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-pine-600); }
+}
 
 /* Range inputs */
 input[type="range"] {
@@ -142,4 +205,16 @@ input[type="range"]::-webkit-slider-thumb {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.fade-up { animation: fade-up 0.35s ease both; }
+.fade-up { animation: fade-up 240ms var(--ease-out-ui) both; }
+
+/* Reduced motion: keep the fades (they aid comprehension), drop movement
+   and the idle pulse. The spinner stays — it is the only "busy" signal. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes fade-up {
+    from { opacity: 0; transform: none; }
+    to { opacity: 1; transform: none; }
+  }
+  .pulse-dot { animation: none; }
+  .btn-primary:active:not(:disabled),
+  .btn-ghost:active:not(:disabled) { transform: none; }
+}

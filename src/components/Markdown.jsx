@@ -40,7 +40,7 @@ export default function Markdown({ text }) {
   flushBullets();
 
   return (
-    <div>
+    <div className="wrap-anywhere">
       {blocks.map((block, i) => {
         if (block.type === "h2")
           return (

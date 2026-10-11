@@ -284,9 +284,9 @@ export default function SkeletonCompare({
       </div>
 
       {/* legend */}
-      <div className="absolute top-2.5 right-3 flex gap-2.5 font-mono text-[9px]">
-        <span style={{ color: USER_COLOR }}>&mdash; YOU</span>
-        <span style={{ color: proProfile?.color || PRO_COLOR }}>
+      <div className="absolute top-2.5 right-3 flex gap-2.5 font-mono text-[9px] max-w-[55%]">
+        <span className="shrink-0" style={{ color: USER_COLOR }}>&mdash; YOU</span>
+        <span className="truncate" style={{ color: proProfile?.color || PRO_COLOR }}>
           &mdash; {proName.toUpperCase()}
         </span>
       </div>
@@ -295,7 +295,7 @@ export default function SkeletonCompare({
       <div className="absolute bottom-2.5 inset-x-0 flex items-center justify-center gap-4">
         <button
           onClick={() => stepPhase(-1)}
-          className="p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
+          className="tap-target p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
           aria-label="Previous phase"
         >
           <SkipBack size={15} />
@@ -313,7 +313,7 @@ export default function SkeletonCompare({
         </button>
         <button
           onClick={() => stepPhase(1)}
-          className="p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
+          className="tap-target p-2 rounded-full text-cream-300 hover:text-cream-50 bg-transparent border-none cursor-pointer"
           aria-label="Next phase"
         >
           <SkipForward size={15} />

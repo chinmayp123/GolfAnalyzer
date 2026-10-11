@@ -123,7 +123,7 @@ export default function ResultsStep({
         <div className="flex items-center gap-2.5">
           <button
             onClick={onGoToAnalyze}
-            className="p-1.5 -ml-1.5 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
+            className="tap-target p-1.5 -ml-1.5 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
             aria-label="Back to analyze"
           >
             <ChevronLeft size={19} />

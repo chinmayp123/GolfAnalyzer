@@ -94,7 +94,10 @@ const VideoWorkspace = forwardRef(function VideoWorkspace(
 
         {/* Busy badge — top left */}
         {busyLabel && (
-          <div className="absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-cream-50/10 bg-pine-950/85 px-3.5 py-2 text-[13px] text-fairway-300">
+          <div
+            aria-live="polite"
+            className="absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-cream-50/10 bg-pine-950/85 px-3.5 py-2 text-[13px] text-fairway-300"
+          >
             <span className="spinner" />
             {busyLabel}
           </div>
@@ -126,7 +129,7 @@ const VideoWorkspace = forwardRef(function VideoWorkspace(
         />
 
         {/* Transport row */}
-        <div className="mt-2 flex items-center justify-between">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-y-2">
           <div className="flex gap-1">
             <button
               onClick={() => onStepFrame(-1)}

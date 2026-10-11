@@ -63,11 +63,13 @@ function SavedProfileRow({ profile, onDeleteProfile }) {
             {profile.name}
           </div>
           <div className="truncate text-xs text-ink-500">
-            {profile.videoFileName}
-            {profile.createdAt && (
-              <> &middot; {new Date(profile.createdAt).toLocaleDateString()}</>
-            )}{" "}
-            &middot; {phasesCount} phase{phasesCount === 1 ? "" : "s"}
+            {[
+              profile.videoFileName,
+              profile.createdAt && new Date(profile.createdAt).toLocaleDateString(),
+              `${phasesCount} phase${phasesCount === 1 ? "" : "s"}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </div>
         <button
@@ -269,7 +271,7 @@ export default function ProLibrary({ profiles, onSaveProfile, onDeleteProfile })
     <div className="fade-up flex flex-col gap-8">
       {/* Header */}
       <header>
-        <h1 className="font-display mb-2 text-3xl text-cream-50">Pro Library</h1>
+        <h1 className="font-display mb-2 text-[23px] md:text-[26px] text-cream-50">Pro Library</h1>
         <p className="max-w-2xl text-sm text-ink-400">
           Upload any pro&rsquo;s swing once &mdash; SwingAI measures their
           positions automatically and uses them as your benchmark.
@@ -402,6 +404,9 @@ export default function ProLibrary({ profiles, onSaveProfile, onDeleteProfile })
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
+                    name="proName"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Scottie Scheffler"
@@ -552,7 +557,7 @@ export default function ProLibrary({ profiles, onSaveProfile, onDeleteProfile })
                               </button>
                             </>
                           ) : (
-                            <span className="truncate text-xs text-ink-600">
+                            <span className="truncate text-xs text-ink-500">
                               {PHASE_HINTS[phase]}
                             </span>
                           )}

@@ -203,7 +203,10 @@ export default function UploadStep({
             />
             <span className="flex-1 min-w-0">
               <span className="block text-[10px] text-ink-500">Comparing against</span>
-              <span className="block truncate text-[13px] font-medium text-cream-100">
+              <span
+                className="block truncate text-[13px] font-medium text-cream-100"
+                title={selectedPro.name}
+              >
                 {selectedPro.name}
               </span>
             </span>
@@ -259,13 +262,14 @@ export default function UploadStep({
 
       {/* Model status */}
       {session.modelStatus === "loading" && (
-        <div className="flex items-center gap-2 text-sm text-fairway-300">
+        <div aria-live="polite" className="flex items-center gap-2 text-sm text-fairway-300">
           <span className="spinner" />
           Loading pose model…
         </div>
       )}
       {session.modelStatus === "error" && (
         <div
+          aria-live="polite"
           className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm"
           style={{ background: "rgba(224, 96, 76, 0.1)", color: "#e0604c" }}
         >
@@ -284,7 +288,7 @@ export default function UploadStep({
       {/* Loaded confirmation */}
       {hasVideo && (
         <div className="fade-up flex flex-col items-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-fairway-300">
+          <div aria-live="polite" className="flex items-center gap-2 text-sm text-fairway-300">
             <CheckCircle2 className="h-4 w-4" />
             Video loaded and ready to analyze
           </div>

@@ -148,7 +148,7 @@ export default function App() {
   const stepIndex = STEPS.findIndex((s) => s.id === step);
 
   return (
-    <div className="min-h-screen md:pl-[212px]">
+    <div className="min-h-dvh md:pl-[212px]">
       {/* ── Desktop left rail ── */}
       <aside
         className="hidden md:flex fixed inset-y-0 left-0 z-40 w-[212px] flex-col gap-1.5 border-r border-cream-50/7 px-3.5 py-5"
@@ -217,7 +217,10 @@ export default function App() {
       </aside>
 
       {/* ── Mobile header: just logo + settings ── */}
-      <header className="md:hidden border-b border-cream-50/8 bg-pine-950/80 backdrop-blur sticky top-0 z-40">
+      <header
+        className="md:hidden border-b border-cream-50/8 bg-pine-950/80 backdrop-blur sticky top-0 z-40"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="px-5 h-14 flex items-center justify-between">
           <button
             className="flex items-center gap-2.5 bg-transparent border-none cursor-pointer"
@@ -230,8 +233,9 @@ export default function App() {
           </button>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
+            className="tap-target p-2 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
             title="Settings"
+            aria-label="Settings"
           >
             <Settings size={18} />
           </button>
@@ -252,7 +256,7 @@ export default function App() {
           <div>
             {/* Title + model status */}
             <div className="flex items-center justify-between mb-4">
-              <h1 className="font-display text-[22px] text-cream-50">New analysis</h1>
+              <h1 className="font-display text-[23px] md:text-[26px] text-cream-50">New analysis</h1>
               {session.modelStatus === "ready" && (
                 <div
                   className="flex items-center gap-1.5 text-[10.5px] text-fairway-300 px-2.5 py-[5px] rounded-full border"
@@ -277,7 +281,7 @@ export default function App() {
                     {i > 0 && <div className="flex-1 h-[1.5px] bg-pine-700" />}
                     <button
                       onClick={() => setStep(s.id)}
-                      className="flex items-center gap-[7px] bg-transparent border-none cursor-pointer p-0"
+                      className="tap-target flex items-center gap-[7px] bg-transparent border-none cursor-pointer p-0"
                     >
                       <span
                         className={`w-[22px] h-[22px] rounded-full text-[11px] flex items-center justify-center shrink-0 ${
@@ -374,7 +378,7 @@ export default function App() {
               style={{ color: active ? "#8fd6a8" : "#6f7d72" }}
             >
               <Icon size={20} />
-              <span className={`text-[9px] ${active ? "font-semibold" : ""}`}>{p.label}</span>
+              <span className={`text-[10px] ${active ? "font-semibold" : ""}`}>{p.label}</span>
             </button>
           );
         })}
@@ -397,6 +401,14 @@ function SettingsModal({ apiKey, onSave, onClose }) {
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -404,13 +416,17 @@ function SettingsModal({ apiKey, onSave, onClose }) {
     >
       <div
         className="card w-full max-w-md p-6 fade-up"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-1">
-          <h2 className="font-display text-xl text-cream-50 m-0">Settings</h2>
+          <h2 id="settings-title" className="font-display text-xl text-cream-50 m-0">Settings</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
+            className="tap-target p-1.5 rounded-lg text-ink-400 hover:text-cream-100 hover:bg-cream-50/5 cursor-pointer bg-transparent border-none"
+            aria-label="Close settings"
           >
             <X size={18} />
           </button>
@@ -427,6 +443,9 @@ function SettingsModal({ apiKey, onSave, onClose }) {
           <div className="relative flex-1">
             <input
               type={show ? "text" : "password"}
+              name="anthropicApiKey"
+              autoComplete="off"
+              spellCheck={false}
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);
@@ -437,7 +456,8 @@ function SettingsModal({ apiKey, onSave, onClose }) {
             />
             <button
               onClick={() => setShow(!show)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-500 hover:text-cream-300 cursor-pointer bg-transparent border-none"
+              className="tap-target absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-500 hover:text-cream-300 cursor-pointer bg-transparent border-none"
+              aria-label={show ? "Hide API key" : "Show API key"}
             >
               {show ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>

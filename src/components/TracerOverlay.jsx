@@ -472,7 +472,7 @@ export function useShotTracer({ videoRef }) {
                   className="btn-ghost min-w-20 flex-1 !px-2 !py-2 text-xs !text-gold-400 !border-gold-400/30"
                 >
                   <RotateCcw size={13} />
-                  {animating ? "Playing..." : "Replay"}
+                  {animating ? "Playing…" : "Replay"}
                 </button>
               )}
               <button

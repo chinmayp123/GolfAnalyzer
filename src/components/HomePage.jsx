@@ -274,7 +274,9 @@ export default function HomePage({ onNewAnalysis, onOpenHistory, onOpenSettings 
                           className="w-[7px] h-[7px] rounded-full shrink-0"
                           style={{ background: s.proColor || "#5cbc7f" }}
                         />
-                        <span className="truncate">vs {s.proName || "Pro"}</span>
+                        <span className="truncate" title={s.proName || undefined}>
+                          vs {s.proName || "Pro"}
+                        </span>
                       </div>
                     </div>
                     <div

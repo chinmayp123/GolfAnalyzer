@@ -25,6 +25,20 @@ function formatDateTime(iso) {
   return `${date} · ${time}`;
 }
 
+// Same text, but only allowed to wrap at the separator — never mid-date.
+function DateTime({ iso }) {
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return (
+    <>
+      <span className="whitespace-nowrap">{date}</span>{" · "}
+      <span className="whitespace-nowrap">{time}</span>
+    </>
+  );
+}
+
 function formatShortDate(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return "";
@@ -161,7 +175,7 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
   return (
     <div className="card overflow-hidden">
       <div
-        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-[rgba(247,244,234,0.03)] transition-colors"
+        className="flex items-center gap-3 p-4 cursor-pointer hover:bg-[rgba(247,244,234,0.03)] transition-colors"
         onClick={onToggle}
         role="button"
         tabIndex={0}
@@ -176,7 +190,7 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
         {swing.thumbnail ? (
           <img
             src={swing.thumbnail}
-            alt="Swing thumbnail"
+            alt=""
             className="h-16 w-12 object-cover rounded-lg shrink-0 border border-[rgba(247,244,234,0.08)]"
           />
         ) : (
@@ -187,13 +201,17 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
 
         {/* meta */}
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-xs text-ink-400">{formatDateTime(swing.date)}</div>
+          <div className="font-mono text-xs text-ink-400">
+            <DateTime iso={swing.date} />
+          </div>
           <div className="flex items-center gap-1.5 mt-1 text-sm text-cream-100">
             <span
               className="inline-block w-2 h-2 rounded-full shrink-0"
               style={{ background: swing.proColor || "#5cbc7f" }}
             />
-            <span className="truncate">vs {swing.proName || "Pro"}</span>
+            <span className="truncate" title={swing.proName || undefined}>
+              vs {swing.proName || "Pro"}
+            </span>
             {swing.shotData && formatShotData(swing.shotData) && (
               <span className="ml-2 hidden truncate font-mono text-[10px] text-gold-300 sm:inline">
                 {formatShotData(swing.shotData)}
@@ -206,7 +224,7 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
               {phases.map((k) => (
                 <span
                   key={k}
-                  className="px-2 py-0.5 rounded-full bg-pine-800 text-[10px] font-mono text-ink-400"
+                  className="px-2 py-0.5 rounded-full bg-pine-800 text-[10px] font-mono text-ink-400 whitespace-nowrap"
                 >
                   {PHASE_SHORT[k] || PHASE_LABELS[k]}{" "}
                   <span style={{ color: getScoreColor(swing.phaseScores[k]) }}>
@@ -231,7 +249,7 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
         {/* actions */}
         <div className="flex items-center gap-1 shrink-0">
           <button
-            className="btn-ghost !p-2 !rounded-lg"
+            className="btn-ghost tap-target !p-2 !rounded-lg"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -293,7 +311,7 @@ function SwingRow({ swing, expanded, onToggle, confirming, onDelete }) {
               <div className="text-[10px] uppercase tracking-wider text-ink-500 mb-2">
                 Coaching notes
               </div>
-              <p className="whitespace-pre-wrap text-sm text-cream-300 leading-relaxed">
+              <p className="whitespace-pre-wrap wrap-anywhere text-sm text-cream-300 leading-relaxed">
                 {swing.coaching}
               </p>
             </div>
@@ -345,9 +363,9 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 fade-up">
+    <div className="max-w-3xl mx-auto fade-up">
       <header className="mb-6">
-        <h1 className="font-display text-3xl text-cream-50">History</h1>
+        <h1 className="font-display text-[23px] md:text-[26px] text-cream-50">History</h1>
         <p className="text-sm text-ink-400 mt-1">
           Every analyzed swing, saved locally on this device.
         </p>
